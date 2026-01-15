@@ -3775,6 +3775,131 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "DCDC_Converters:TSR_3-2450N"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "U"
+				(at -7.112 10.16 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "TSR 3-2450N"
+				(at -1.016 7.874 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" "DCDC_Converters:Traco_TSR 3-2450N"
+				(at 0.508 -19.558 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Non-Isolated PoL Module DC DC Converter 1 Output 5V 3A 6.5V - 36V Input p/n TSR 3-2450N"
+				(at 0.508 -17.018 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "Non-Isolated PoL Module DC DC Converter 1 Output 5V 3A 6.5V - 36V Input p/n TSR 3-2450N"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "TSR_3-2450N_1_1"
+				(rectangle
+					(start -7.62 6.35)
+					(end 7.62 -2.54)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(pin power_in line
+					(at -11.43 2.54 0)
+					(length 3.81)
+					(name "Vin"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 0 -6.35 90)
+					(length 3.81)
+					(name "GND"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_out line
+					(at 11.43 2.54 180)
+					(length 3.81)
+					(name "Vout"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Ethernet:RTL8152B"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -5308,143 +5433,6 @@
 					)
 					(fill
 						(type none)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
-		(symbol "Regulator_Switching:TSR3-2450N"
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "U"
-				(at -7.112 6.35 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "TSR3-2450N"
-				(at 1.524 6.35 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" "Converter_DCDC:Converter_DCDC_TRACO_TSR2-24xxN_TSR2-24xxxN_THT"
-				(at 0 -6.096 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-						(italic yes)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" "https://www.tracopower.com/products/tsr3n.pdf"
-				(at 0 -3.81 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "3A step-down regulator, fixed 5V output voltage, 6.5-36V input voltage, TO-220 compatible LM78xx replacement"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "Traco non-isolated pol dcdc converter single"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_fp_filters" "Converter*DCDC*TRACO*TSR2*24xxN*24xxxN*THT*"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "TSR3-2450N_0_1"
-				(rectangle
-					(start -7.62 5.08)
-					(end 7.62 -2.54)
-					(stroke
-						(width 0.254)
-						(type default)
-					)
-					(fill
-						(type background)
-					)
-				)
-			)
-			(symbol "TSR3-2450N_1_1"
-				(pin power_in line
-					(at -10.16 2.54 0)
-					(length 2.54)
-					(name "Vin"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 0 -5.08 90)
-					(length 2.54)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_out line
-					(at 10.16 2.54 180)
-					(length 2.54)
-					(name "Vout"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "3"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
 					)
 				)
 			)
@@ -9292,7 +9280,7 @@
 	)
 	(text "Power In (18-24VDC)"
 		(exclude_from_sim no)
-		(at 58.928 57.658 0)
+		(at 58.928 60.198 0)
 		(effects
 			(font
 				(size 2.032 2.032)
@@ -9424,36 +9412,13 @@
 	)
 	(text "5V DCDC Supply"
 		(exclude_from_sim no)
-		(at 103.378 57.658 0)
+		(at 98.806 60.198 0)
 		(effects
 			(font
 				(size 2.032 2.032)
 			)
 		)
 		(uuid "fdc854b9-4e40-4e09-b4ff-b6afb75b89b3")
-	)
-	(text_box "TODO: add SMT test points to nets of interest."
-		(exclude_from_sim no)
-		(at 30.48 24.13 0)
-		(size 19.05 8.89)
-		(margins 0.9525 0.9525 0.9525 0.9525)
-		(stroke
-			(width 0)
-			(type solid)
-			(color 0 0 0 1)
-		)
-		(fill
-			(type color)
-			(color 242 255 249 1)
-		)
-		(effects
-			(font
-				(size 1.27 1.27)
-				(color 0 0 0 1)
-			)
-			(justify left top)
-		)
-		(uuid "e679585e-8524-4fc2-b66d-0796cede0476")
 	)
 	(junction
 		(at 224.79 152.4)
@@ -9490,6 +9455,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "0f943b67-31da-48d5-becb-2829a789089f")
+	)
+	(junction
+		(at 80.01 54.61)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "174207f9-c106-44a3-a093-9bdd69a9c9b3")
 	)
 	(junction
 		(at 156.21 52.07)
@@ -9534,16 +9505,16 @@
 		(uuid "31283887-943a-4258-8dd7-e41a498b6b6c")
 	)
 	(junction
-		(at 80.01 44.45)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "34739e25-c79d-4c54-9bf0-c0018db1744d")
-	)
-	(junction
 		(at 185.42 233.68)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "385a321a-4e11-4d11-a3ab-7d49e36ca5fe")
+	)
+	(junction
+		(at 97.79 54.61)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "4019eaa4-e82d-4273-8601-54d85ea09982")
 	)
 	(junction
 		(at 219.71 36.83)
@@ -9556,12 +9527,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "53898145-c0e5-41c7-90d0-c65b2dcd04d6")
-	)
-	(junction
-		(at 99.06 52.07)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "5b029964-e990-4a77-a35b-a9d4f31a3268")
 	)
 	(junction
 		(at 119.38 213.36)
@@ -9708,12 +9673,6 @@
 		(uuid "b1fd77ba-bbb8-4f39-b4e3-26b0c7f0525c")
 	)
 	(junction
-		(at 64.77 52.07)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "b25598af-798e-4384-a4fd-39a617a5abce")
-	)
-	(junction
 		(at 215.9 247.65)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -9738,6 +9697,18 @@
 		(uuid "c7a2d633-d76d-417d-9147-e2dd52a8f0e5")
 	)
 	(junction
+		(at 113.03 54.61)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "c7e57912-1cd0-4922-b357-f1cc7af2254a")
+	)
+	(junction
+		(at 80.01 44.45)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "cc211c94-8500-4bc9-86f8-5a5251983200")
+	)
+	(junction
 		(at 64.77 109.22)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -9756,22 +9727,16 @@
 		(uuid "ce8f51a8-d7e4-40f1-8475-cf83ad5736ef")
 	)
 	(junction
-		(at 113.03 52.07)
+		(at 64.77 54.61)
 		(diameter 0)
 		(color 0 0 0 0)
-		(uuid "d53a5217-5a60-4cf0-a164-03745c41249f")
+		(uuid "d980548f-99f8-4b47-af85-54c478fef464")
 	)
 	(junction
 		(at 219.71 39.37)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "de58d7ca-f0d2-489f-8238-b8d7a20d7a3a")
-	)
-	(junction
-		(at 80.01 52.07)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "ef13aa7b-5dba-4f6c-b74b-6fd84124102f")
 	)
 	(junction
 		(at 210.82 67.31)
@@ -9878,6 +9843,16 @@
 	(no_connect
 		(at 85.09 205.74)
 		(uuid "fac6902d-57c9-40c7-aa10-fd4e96b2cf35")
+	)
+	(wire
+		(pts
+			(xy 80.01 52.07) (xy 80.01 54.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "000711da-91f1-4d4c-a8c5-8406c945abed")
 	)
 	(wire
 		(pts
@@ -10031,7 +10006,7 @@
 	)
 	(wire
 		(pts
-			(xy 128.27 50.8) (xy 128.27 52.07)
+			(xy 128.27 52.07) (xy 128.27 54.61)
 		)
 		(stroke
 			(width 0)
@@ -10161,6 +10136,16 @@
 	)
 	(wire
 		(pts
+			(xy 80.01 44.45) (xy 86.36 44.45)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "0e062d9b-a219-4de3-aeb9-bfda1da88bd1")
+	)
+	(wire
+		(pts
 			(xy 267.97 200.66) (xy 281.94 200.66)
 		)
 		(stroke
@@ -10171,7 +10156,7 @@
 	)
 	(wire
 		(pts
-			(xy 113.03 52.07) (xy 128.27 52.07)
+			(xy 113.03 54.61) (xy 128.27 54.61)
 		)
 		(stroke
 			(width 0)
@@ -10241,7 +10226,7 @@
 	)
 	(wire
 		(pts
-			(xy 64.77 44.45) (xy 64.77 45.72)
+			(xy 64.77 44.45) (xy 64.77 46.99)
 		)
 		(stroke
 			(width 0)
@@ -10321,7 +10306,7 @@
 	)
 	(wire
 		(pts
-			(xy 80.01 44.45) (xy 80.01 45.72)
+			(xy 80.01 44.45) (xy 80.01 46.99)
 		)
 		(stroke
 			(width 0)
@@ -10601,7 +10586,7 @@
 	)
 	(wire
 		(pts
-			(xy 113.03 44.45) (xy 113.03 45.72)
+			(xy 113.03 44.45) (xy 113.03 46.99)
 		)
 		(stroke
 			(width 0)
@@ -10681,7 +10666,7 @@
 	)
 	(wire
 		(pts
-			(xy 80.01 52.07) (xy 99.06 52.07)
+			(xy 80.01 54.61) (xy 97.79 54.61)
 		)
 		(stroke
 			(width 0)
@@ -11011,16 +10996,6 @@
 	)
 	(wire
 		(pts
-			(xy 80.01 50.8) (xy 80.01 52.07)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "50953016-2653-4596-a981-024eb9049af5")
-	)
-	(wire
-		(pts
 			(xy 101.6 109.22) (xy 111.76 109.22)
 		)
 		(stroke
@@ -11241,16 +11216,6 @@
 	)
 	(wire
 		(pts
-			(xy 99.06 52.07) (xy 113.03 52.07)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "642b5d5f-f02a-4233-8b78-3b26f9dee17d")
-	)
-	(wire
-		(pts
 			(xy 218.44 237.49) (xy 252.73 237.49)
 		)
 		(stroke
@@ -11401,6 +11366,16 @@
 	)
 	(wire
 		(pts
+			(xy 64.77 52.07) (xy 64.77 54.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "725bfafd-9cba-4d27-aa36-a2c33b5f158b")
+	)
+	(wire
+		(pts
 			(xy 234.95 104.14) (xy 252.73 104.14)
 		)
 		(stroke
@@ -11418,26 +11393,6 @@
 			(type default)
 		)
 		(uuid "731e63a5-45e3-44bf-859d-349fcf5c77e7")
-	)
-	(wire
-		(pts
-			(xy 64.77 50.8) (xy 64.77 52.07)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "7541ee6e-aa4f-4455-b169-e4cdea5d3d42")
-	)
-	(wire
-		(pts
-			(xy 113.03 50.8) (xy 113.03 52.07)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "77098b97-f23b-48d5-bae4-fc4e4b71f085")
 	)
 	(wire
 		(pts
@@ -11491,7 +11446,17 @@
 	)
 	(wire
 		(pts
-			(xy 60.96 52.07) (xy 64.77 52.07)
+			(xy 97.79 54.61) (xy 113.03 54.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "81a2cbbb-1741-4bd1-8c7c-fec2c05f4623")
+	)
+	(wire
+		(pts
+			(xy 60.96 54.61) (xy 64.77 54.61)
 		)
 		(stroke
 			(width 0)
@@ -11581,7 +11546,7 @@
 	)
 	(wire
 		(pts
-			(xy 60.96 52.07) (xy 60.96 46.99)
+			(xy 60.96 54.61) (xy 60.96 46.99)
 		)
 		(stroke
 			(width 0)
@@ -11841,7 +11806,7 @@
 	)
 	(wire
 		(pts
-			(xy 64.77 52.07) (xy 80.01 52.07)
+			(xy 64.77 54.61) (xy 80.01 54.61)
 		)
 		(stroke
 			(width 0)
@@ -11888,16 +11853,6 @@
 			(type default)
 		)
 		(uuid "a9636a1e-167b-4f13-9f65-8bee654431a7")
-	)
-	(wire
-		(pts
-			(xy 80.01 44.45) (xy 88.9 44.45)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ab0ce843-2d02-4dff-86c9-d0bdb10510b4")
 	)
 	(wire
 		(pts
@@ -12001,6 +11956,16 @@
 	)
 	(wire
 		(pts
+			(xy 97.79 53.34) (xy 97.79 54.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "b585e9f7-d0b7-47fd-b4a7-ddd43254aad3")
+	)
+	(wire
+		(pts
 			(xy 311.15 208.28) (xy 311.15 218.44)
 		)
 		(stroke
@@ -12091,7 +12056,7 @@
 	)
 	(wire
 		(pts
-			(xy 128.27 44.45) (xy 128.27 45.72)
+			(xy 128.27 44.45) (xy 128.27 46.99)
 		)
 		(stroke
 			(width 0)
@@ -12158,6 +12123,16 @@
 			(type default)
 		)
 		(uuid "bed19616-67c9-40a7-bb06-9a45e522cec8")
+	)
+	(wire
+		(pts
+			(xy 113.03 52.07) (xy 113.03 54.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bf2b1909-3d46-4178-b4f9-c6e9c162c589")
 	)
 	(wire
 		(pts
@@ -14527,7 +14502,7 @@
 	)
 	(symbol
 		(lib_id "Capacitors:CAP_100nF_0402_50V")
-		(at 80.01 48.26 0)
+		(at 80.01 49.53 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -14535,7 +14510,7 @@
 		(dnp no)
 		(uuid "1546cc95-adba-427e-947e-669bf1f021ed")
 		(property "Reference" "C1"
-			(at 78.486 39.878 0)
+			(at 78.486 40.132 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14544,7 +14519,7 @@
 			)
 		)
 		(property "Value" "100nF 50V"
-			(at 74.93 42.418 0)
+			(at 74.93 42.672 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14553,7 +14528,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
-			(at 82.55 61.468 0)
+			(at 82.55 62.738 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14562,7 +14537,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 80.01 48.26 0)
+			(at 80.01 49.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14571,7 +14546,7 @@
 			)
 		)
 		(property "Description" "CAP CER 0.1UF 50V X5R 0402 p/n CC0402KRX5R9BB104"
-			(at 81.28 58.928 0)
+			(at 81.28 60.198 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14669,7 +14644,7 @@
 	)
 	(symbol
 		(lib_id "Capacitors:CAP_10uF_0805_50V")
-		(at 64.77 48.26 0)
+		(at 64.77 49.53 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -14677,7 +14652,7 @@
 		(dnp no)
 		(uuid "19c242be-402b-4d56-9ca5-4f53a114c0d7")
 		(property "Reference" "C29"
-			(at 62.738 39.878 0)
+			(at 62.738 40.132 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14686,7 +14661,7 @@
 			)
 		)
 		(property "Value" "10uF 50V"
-			(at 60.706 42.418 0)
+			(at 60.706 42.672 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14695,7 +14670,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
-			(at 67.31 61.468 0)
+			(at 67.31 62.738 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14704,7 +14679,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 64.77 48.26 0)
+			(at 64.77 49.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14713,7 +14688,7 @@
 			)
 		)
 		(property "Description" "CAP CER 10UF 50V X5R 0805 p/n GRM21BR61H106KE43L"
-			(at 66.04 58.928 0)
+			(at 66.04 60.198 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16326,6 +16301,77 @@
 		)
 	)
 	(symbol
+		(lib_id "DCDC_Converters:TSR_3-2450N")
+		(at 97.79 46.99 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "3c8dd4aa-28a3-4028-8ca7-a7e2153137c6")
+		(property "Reference" "U4"
+			(at 97.79 35.56 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "TSR 3-2450N"
+			(at 97.79 38.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "DCDC_Converters:Traco_TSR 3-2450N"
+			(at 98.298 66.548 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 97.79 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Non-Isolated PoL Module DC DC Converter 1 Output 5V 3A 6.5V - 36V Input p/n TSR 3-2450N"
+			(at 98.298 64.008 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "3"
+			(uuid "03cfa9e7-34b2-43c3-b2c0-c4d80ab283d9")
+		)
+		(pin "1"
+			(uuid "eb44ed25-19df-4430-aa3b-0ce97ead30d9")
+		)
+		(pin "2"
+			(uuid "4defde0c-12b9-439d-b7e5-d5a885c2e27b")
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "U4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Resistors:Res_91R_0603_1p")
 		(at 341.63 38.1 90)
 		(unit 1)
@@ -16400,7 +16446,6 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "3e50f8e4-e88d-4128-a60f-c341f81d5f7e")
 		(property "Reference" "#PWR09"
 			(at 113.03 48.26 0)
@@ -16412,7 +16457,7 @@
 			)
 		)
 		(property "Value" "+5V"
-			(at 113.03 39.37 0)
+			(at 112.522 39.878 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -19721,78 +19766,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Regulator_Switching:TSR3-2450N")
-		(at 99.06 46.99 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "98251c9e-7beb-45b5-a5f0-cb4c6bc72a43")
-		(property "Reference" "U4"
-			(at 99.06 36.83 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "TSR3-2450N"
-			(at 99.06 39.37 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Converter_DCDC:Converter_DCDC_TRACO_TSR2-24xxN_TSR2-24xxxN_THT"
-			(at 99.06 53.086 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-					(italic yes)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "https://www.tracopower.com/products/tsr3n.pdf"
-			(at 99.06 50.8 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "3A step-down regulator, fixed 5V output voltage, 6.5-36V input voltage, TO-220 compatible LM78xx replacement"
-			(at 99.06 46.99 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "e095a00e-1876-4345-9f42-409f7d5f5e28")
-		)
-		(pin "3"
-			(uuid "9a7f9d07-24bb-494e-b286-2f95c422b480")
-		)
-		(pin "2"
-			(uuid "77d1b880-89b8-4e47-baa1-87efaee471e5")
-		)
-		(instances
-			(project ""
-				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
-					(reference "U4")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:+3V3")
 		(at 196.85 143.51 90)
 		(unit 1)
@@ -20550,7 +20523,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 99.06 52.07 0)
+		(at 97.79 54.61 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -20558,7 +20531,7 @@
 		(dnp no)
 		(uuid "af0f5f86-9a20-486e-b9f5-7b729b2a7c80")
 		(property "Reference" "#PWR08"
-			(at 99.06 58.42 0)
+			(at 97.79 60.96 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20567,7 +20540,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 103.378 53.848 0)
+			(at 102.108 56.388 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20575,7 +20548,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 99.06 52.07 0)
+			(at 97.79 54.61 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20584,7 +20557,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 99.06 52.07 0)
+			(at 97.79 54.61 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20593,7 +20566,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 99.06 52.07 0)
+			(at 97.79 54.61 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22236,7 +22209,7 @@
 	)
 	(symbol
 		(lib_id "Capacitors:CAP_1uF_0402_50V")
-		(at 113.03 48.26 0)
+		(at 113.03 49.53 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -22245,7 +22218,7 @@
 		(fields_autoplaced yes)
 		(uuid "d0fc004e-dbec-4ed3-b9f4-b8fbc5fc5652")
 		(property "Reference" "C2"
-			(at 115.57 46.9962 0)
+			(at 115.57 48.2662 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22254,7 +22227,7 @@
 			)
 		)
 		(property "Value" "1uF 50V"
-			(at 115.57 49.5362 0)
+			(at 115.57 50.8062 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22263,7 +22236,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
-			(at 115.57 61.468 0)
+			(at 115.57 62.738 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22272,7 +22245,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 113.03 48.26 0)
+			(at 113.03 49.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22281,7 +22254,7 @@
 			)
 		)
 		(property "Description" "CAP CER 1UF 50V X5R 0402 p/n UMK105CBJ105MV-F"
-			(at 114.3 58.928 0)
+			(at 114.3 60.198 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22907,7 +22880,7 @@
 	)
 	(symbol
 		(lib_id "Capacitors:CAP_10uF_0402_10V")
-		(at 128.27 48.26 0)
+		(at 128.27 49.53 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -22915,7 +22888,7 @@
 		(dnp no)
 		(uuid "e4990bf4-8248-4c29-a36a-2941272a82b0")
 		(property "Reference" "C30"
-			(at 126.238 39.624 0)
+			(at 126.238 39.878 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22924,7 +22897,7 @@
 			)
 		)
 		(property "Value" "10uF 10V"
-			(at 124.206 42.164 0)
+			(at 124.206 42.418 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22933,7 +22906,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
-			(at 130.81 61.468 0)
+			(at 130.81 62.738 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22942,7 +22915,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 128.27 48.26 0)
+			(at 128.27 49.53 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22951,7 +22924,7 @@
 			)
 		)
 		(property "Description" "CAP CER 10UF 10V X5R 0402 p/n GRM155R61A106ME11D"
-			(at 129.54 58.928 0)
+			(at 129.54 60.198 0)
 			(effects
 				(font
 					(size 1.27 1.27)
