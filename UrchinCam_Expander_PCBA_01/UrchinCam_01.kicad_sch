@@ -788,88 +788,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Board_Spacers:9774050151R"
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "H"
-				(at 1.524 0.762 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "9774050151R"
-				(at 7.62 -1.524 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" "Mounting_Wuerth:Mounting_Wuerth_WA-SMSI-M2.5_H5mm_9774050151R"
-				(at 3.302 -8.636 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" ""
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "SMT STANDOFF M2.5X0.45 STEEL 5MM"
-				(at 0.508 -6.096 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "9774050151R_0_1"
-				(circle
-					(center 0 3.81)
-					(radius 1.27)
-					(stroke
-						(width 1.27)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "9774050151R_1_1"
-				(pin input line
-					(at 0 0 90)
-					(length 2.54)
-					(name "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "Capacitors:CAP_100nF_0402_50V"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -5324,6 +5242,77 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Mounting_Holes:Mounting_Hole_M2.5"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "H"
+				(at 0.762 -3.048 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
+				(at 1.016 -5.08 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
+				(at 0.254 -7.366 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "Mounting Hole M2.5 unplated 2.9mm diameter"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "Mounting_Hole_M2.5_0_1"
+				(circle
+					(center 0 0)
+					(radius 1.27)
+					(stroke
+						(width 1.27)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Regulator_Switching:TSR3-2450N"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -9323,7 +9312,7 @@
 	)
 	(text "Power rail test points"
 		(exclude_from_sim no)
-		(at 356.362 117.348 0)
+		(at 352.552 127.508 0)
 		(effects
 			(font
 				(size 2.032 2.032)
@@ -9351,9 +9340,9 @@
 		)
 		(uuid "9eccb4b9-ba0f-4442-b714-865e35043926")
 	)
-	(text "M2.5 5mm Threaded SMT Board Spacers"
+	(text "M2.5 Unplated TH Mounting"
 		(exclude_from_sim no)
-		(at 357.378 160.274 0)
+		(at 353.06 154.178 0)
 		(effects
 			(font
 				(size 2.032 2.032)
@@ -9795,10 +9784,6 @@
 		(uuid "0c17eebe-8871-4531-8c41-d7b002be0186")
 	)
 	(no_connect
-		(at 340.36 139.7)
-		(uuid "1153abdc-21cb-4e5a-9fd2-f30123b00d65")
-	)
-	(no_connect
 		(at 113.03 154.94)
 		(uuid "12ddddc1-ccfb-495b-888b-588826e02383")
 	)
@@ -9817,10 +9802,6 @@
 	(no_connect
 		(at 113.03 139.7)
 		(uuid "28b7bb8e-3d4f-4b0f-a182-2d735e78c4bc")
-	)
-	(no_connect
-		(at 359.41 152.4)
-		(uuid "351a2f8f-9db7-42c5-b2d0-560065e2ed20")
 	)
 	(no_connect
 		(at 99.06 119.38)
@@ -9849,10 +9830,6 @@
 	(no_connect
 		(at 113.03 157.48)
 		(uuid "6b49216a-d339-456d-a05e-e37e20470d1f")
-	)
-	(no_connect
-		(at 340.36 152.4)
-		(uuid "6bea5386-cbb5-496e-bb0e-f879fb7991bb")
 	)
 	(no_connect
 		(at 86.36 116.84)
@@ -9889,10 +9866,6 @@
 	(no_connect
 		(at 99.06 121.92)
 		(uuid "bedd15d4-3cf9-410a-a8ad-51cc2ffbe6fd")
-	)
-	(no_connect
-		(at 359.41 139.7)
-		(uuid "c66687b5-5609-45ee-9caa-9524204cfdb7")
 	)
 	(no_connect
 		(at 115.57 205.74)
@@ -13648,7 +13621,7 @@
 	)
 	(symbol
 		(lib_id "Connector:TestPoint")
-		(at 363.22 106.68 180)
+		(at 359.41 116.84 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -13656,7 +13629,7 @@
 		(dnp no)
 		(uuid "00759b1b-0aaf-4df5-b7ab-c049b2686d90")
 		(property "Reference" "TP4"
-			(at 366.776 109.982 0)
+			(at 362.966 120.142 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13664,7 +13637,7 @@
 			)
 		)
 		(property "Value" "TestPoint"
-			(at 360.68 109.982 90)
+			(at 356.87 120.142 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13673,7 +13646,7 @@
 			)
 		)
 		(property "Footprint" "TestPoint:TestPoint_Pad_D1.5mm"
-			(at 358.14 106.68 0)
+			(at 354.33 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13682,7 +13655,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 358.14 106.68 0)
+			(at 354.33 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13691,7 +13664,7 @@
 			)
 		)
 		(property "Description" "test point"
-			(at 363.22 106.68 0)
+			(at 359.41 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14348,73 +14321,6 @@
 			(project "UrchinCam_01"
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "TP10")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Board_Spacers:9774050151R")
-		(at 340.36 139.7 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "13b819a4-50b2-41d4-8b62-590fe63b6a1f")
-		(property "Reference" "H1"
-			(at 342.9 134.6199 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "9774050151R"
-			(at 342.9 137.1599 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Mounting_Wuerth:Mounting_Wuerth_WA-SMSI-M2.5_H5mm_9774050151R"
-			(at 343.662 148.336 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 340.36 139.7 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "SMT STANDOFF M2.5X0.45 STEEL 5MM"
-			(at 340.868 145.796 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "0f4374e5-185c-49c7-9d4e-8c9a9770060e")
-		)
-		(instances
-			(project ""
-				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
-					(reference "H1")
 					(unit 1)
 				)
 			)
@@ -15093,6 +14999,134 @@
 		)
 	)
 	(symbol
+		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
+		(at 331.47 147.32 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "1eaf7b97-1849-4fc9-9d64-a623769293ad")
+		(property "Reference" "H1"
+			(at 334.01 146.0499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "M2.5"
+			(at 334.01 148.5899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
+			(at 332.486 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 331.47 147.32 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
+			(at 331.724 154.686 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "H1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
+		(at 369.57 147.32 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "22863ce1-697f-4ea0-8ce9-fc3958b21b87")
+		(property "Reference" "H4"
+			(at 372.11 146.0499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "M2.5"
+			(at 372.11 148.5899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
+			(at 370.586 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 369.57 147.32 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
+			(at 369.824 154.686 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "H4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 210.82 67.31 0)
 		(unit 1)
@@ -15159,7 +15193,7 @@
 	)
 	(symbol
 		(lib_id "Connector:TestPoint")
-		(at 354.33 106.68 180)
+		(at 350.52 116.84 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15167,7 +15201,7 @@
 		(dnp no)
 		(uuid "25558c6e-7afa-4df8-abdc-3d3dbc60fb77")
 		(property "Reference" "TP3"
-			(at 357.632 109.982 0)
+			(at 353.822 120.142 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15175,7 +15209,7 @@
 			)
 		)
 		(property "Value" "TestPoint"
-			(at 351.79 109.982 90)
+			(at 347.98 120.142 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15184,7 +15218,7 @@
 			)
 		)
 		(property "Footprint" "TestPoint:TestPoint_Pad_D1.5mm"
-			(at 349.25 106.68 0)
+			(at 345.44 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15193,7 +15227,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 349.25 106.68 0)
+			(at 345.44 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15202,7 +15236,7 @@
 			)
 		)
 		(property "Description" "test point"
-			(at 354.33 106.68 0)
+			(at 350.52 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15626,8 +15660,72 @@
 		)
 	)
 	(symbol
+		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
+		(at 356.87 147.32 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "2ae08820-ad33-4505-9a8d-a5b02191a32a")
+		(property "Reference" "H3"
+			(at 359.41 146.0499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "M2.5"
+			(at 359.41 148.5899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
+			(at 357.886 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 356.87 147.32 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
+			(at 357.124 154.686 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "H3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Connector:TestPoint")
-		(at 344.17 107.95 0)
+		(at 340.36 118.11 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15635,7 +15733,7 @@
 		(dnp no)
 		(uuid "2df874df-7a74-46ed-b746-bb5853a4071c")
 		(property "Reference" "TP2"
-			(at 348.234 104.648 0)
+			(at 344.424 114.808 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15643,7 +15741,7 @@
 			)
 		)
 		(property "Value" "TestPoint"
-			(at 346.71 104.648 90)
+			(at 342.9 114.808 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15652,7 +15750,7 @@
 			)
 		)
 		(property "Footprint" "TestPoint:TestPoint_Pad_D1.5mm"
-			(at 349.25 107.95 0)
+			(at 345.44 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15661,7 +15759,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 349.25 107.95 0)
+			(at 345.44 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15670,7 +15768,7 @@
 			)
 		)
 		(property "Description" "test point"
-			(at 344.17 107.95 0)
+			(at 340.36 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16556,73 +16654,6 @@
 			(project ""
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "R3")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Board_Spacers:9774050151R")
-		(at 359.41 152.4 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "41bb13c8-202d-43b5-b4be-99e41f99dfa6")
-		(property "Reference" "H4"
-			(at 361.95 147.3199 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "9774050151R"
-			(at 361.95 149.8599 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Mounting_Wuerth:Mounting_Wuerth_WA-SMSI-M2.5_H5mm_9774050151R"
-			(at 362.712 161.036 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 359.41 152.4 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "SMT STANDOFF M2.5X0.45 STEEL 5MM"
-			(at 359.918 158.496 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "0f4374e5-185c-49c7-9d4e-8c9a9770060f")
-		)
-		(instances
-			(project ""
-				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
-					(reference "H4")
 					(unit 1)
 				)
 			)
@@ -18113,73 +18144,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Board_Spacers:9774050151R")
-		(at 359.41 139.7 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "67332b7e-e2cd-4bf2-9ad6-f2b6570d64e7")
-		(property "Reference" "H2"
-			(at 361.95 134.6199 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "9774050151R"
-			(at 361.95 137.1599 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Mounting_Wuerth:Mounting_Wuerth_WA-SMSI-M2.5_H5mm_9774050151R"
-			(at 362.712 148.336 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 359.41 139.7 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "SMT STANDOFF M2.5X0.45 STEEL 5MM"
-			(at 359.918 145.796 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "0f4374e5-185c-49c7-9d4e-8c9a97700610")
-		)
-		(instances
-			(project ""
-				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
-					(reference "H2")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:Earth")
 		(at 77.47 241.3 0)
 		(unit 1)
@@ -18317,7 +18281,7 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
-		(at 354.33 106.68 0)
+		(at 350.52 116.84 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -18326,7 +18290,7 @@
 		(fields_autoplaced yes)
 		(uuid "695d21d1-58ab-41f0-8c96-95e599d364d1")
 		(property "Reference" "#PWR011"
-			(at 354.33 110.49 0)
+			(at 350.52 120.65 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18335,7 +18299,7 @@
 			)
 		)
 		(property "Value" "+3V3"
-			(at 354.33 101.6 0)
+			(at 350.52 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18343,7 +18307,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 354.33 106.68 0)
+			(at 350.52 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18352,7 +18316,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 354.33 106.68 0)
+			(at 350.52 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18361,7 +18325,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 354.33 106.68 0)
+			(at 350.52 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18650,73 +18614,6 @@
 			(project "UrchinCam_01"
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "#PWR25")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Board_Spacers:9774050151R")
-		(at 340.36 152.4 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "6f4db8c6-3368-4d82-8b86-5b4c5e8b8a03")
-		(property "Reference" "H3"
-			(at 342.9 147.3199 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "9774050151R"
-			(at 342.9 149.8599 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Mounting_Wuerth:Mounting_Wuerth_WA-SMSI-M2.5_H5mm_9774050151R"
-			(at 343.662 161.036 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 340.36 152.4 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "SMT STANDOFF M2.5X0.45 STEEL 5MM"
-			(at 340.868 158.496 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "0f4374e5-185c-49c7-9d4e-8c9a97700611")
-		)
-		(instances
-			(project ""
-				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
-					(reference "H3")
 					(unit 1)
 				)
 			)
@@ -20917,7 +20814,7 @@
 	)
 	(symbol
 		(lib_id "power:+5V")
-		(at 363.22 106.68 0)
+		(at 359.41 116.84 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -20926,7 +20823,7 @@
 		(fields_autoplaced yes)
 		(uuid "b87091fe-fe26-40de-b650-78881142f8aa")
 		(property "Reference" "#PWR012"
-			(at 363.22 110.49 0)
+			(at 359.41 120.65 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20935,7 +20832,7 @@
 			)
 		)
 		(property "Value" "+5V"
-			(at 363.22 101.6 0)
+			(at 359.41 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20943,7 +20840,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 363.22 106.68 0)
+			(at 359.41 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20952,7 +20849,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 363.22 106.68 0)
+			(at 359.41 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20961,7 +20858,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+5V\""
-			(at 363.22 106.68 0)
+			(at 359.41 116.84 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -21408,6 +21305,70 @@
 			(project "UrchinCam_01"
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "TP14")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
+		(at 344.17 147.32 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "be8de962-90c7-4f23-bdb5-848fa0dd0b02")
+		(property "Reference" "H2"
+			(at 346.71 146.0499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "M2.5"
+			(at 346.71 148.5899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
+			(at 345.186 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 344.17 147.32 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
+			(at 344.424 154.686 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "H2")
 					(unit 1)
 				)
 			)
@@ -22881,7 +22842,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 344.17 107.95 0)
+		(at 340.36 118.11 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -22889,7 +22850,7 @@
 		(dnp no)
 		(uuid "e46ed255-a209-40dd-ac63-fe29a480e9ff")
 		(property "Reference" "#PWR010"
-			(at 344.17 114.3 0)
+			(at 340.36 124.46 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22898,7 +22859,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 348.234 109.728 0)
+			(at 344.424 119.888 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22906,7 +22867,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 344.17 107.95 0)
+			(at 340.36 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22915,7 +22876,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 344.17 107.95 0)
+			(at 340.36 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22924,7 +22885,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 344.17 107.95 0)
+			(at 340.36 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)

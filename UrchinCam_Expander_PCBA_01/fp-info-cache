@@ -1,4 +1,4 @@
-26938177614559775
+26939946121274145
 Audio_Module
 Reverb_BTDR-1H
 Digital Reverberation Unit, http://www.belton.co.kr/inc/downfile.php?seq=17&file=pdf (footprint from http://www.uk-electronic.de/PDF/BTDR-1.pdf)
@@ -72236,6 +72236,13 @@ MountingHole
 ToolingHole_1.152mm
 Tooling Hole 1.152mm, 1.3mm solder mask, JLCPCB specification, https://jlcpcb.com/help/article/How-to-add-tooling-holes-for-PCB-assembly-order
 mounting
+0
+0
+0
+Mounting_Holes
+M2.5_Mounting_Hole_2.9mm_unplated
+M2.5 mounting hole 2.9mm diameter, unplated
+
 0
 0
 0

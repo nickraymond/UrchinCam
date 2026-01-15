@@ -240,50 +240,6 @@
         [
           "copper_edge_clearance|135682500|98555000|57327780-f819-461d-85e8-087eec0aa686|29c9b0d5-c930-4077-8235-05321f5dc497",
           "Header close to edge"
-        ],
-        [
-          "copper_edge_clearance|140000000|135500000|eac249e6-cf40-4739-a104-d2516d0c8e51|0859873b-6c9f-4283-8c89-db333f8cbdff",
-          "Standoffs close to edge"
-        ],
-        [
-          "copper_edge_clearance|140111082|70879006|e15b5436-6350-4fb3-8715-ac9b19a4fef8|bcb8eae8-501a-4fec-bfc3-f6c14f3bc5d4",
-          "Standoffs close to edge"
-        ],
-        [
-          "copper_edge_clearance|141800121|71836654|9de03c93-e681-4efc-8dad-c709101433e5|a9cd2f88-3cde-4c24-af47-94c1d1b9ed47",
-          "Standoffs close to edge"
-        ],
-        [
-          "copper_edge_clearance|162882929|70879204|7b464a0f-c526-4560-9e16-f33266a08c3f|f3b6313f-c4b6-4d23-a1fa-5b28c0baaac9",
-          "Standoffs close to edge"
-        ],
-        [
-          "copper_edge_clearance|163317687|135108029|317c3b6a-43b7-4d8c-9a6e-b7e4190ac876|7e0903a6-558c-4f98-957c-6a681c368265",
-          "Standoffs close to edge"
-        ],
-        [
-          "copper_edge_clearance|163421473|134950314|317c3b6a-43b7-4d8c-9a6e-b7e4190ac876|f3863113-96e0-4bc5-baee-634c192ce6ca",
-          "Standoffs close to edge"
-        ],
-        [
-          "copper_edge_clearance|166499999|74000000|3ae8645f-42c0-4608-a699-a902cbd2f51e|83952f35-2e7c-4d1a-8066-614065a67b57",
-          "Standoffs close to edge"
-        ],
-        [
-          "hole_clearance|140000000|132000000|a5426aa1-8de3-4222-9ba3-cb63f885c22a|f832a22c-0916-4370-b3c4-2c977f8641a1",
-          "SMT standoff footprint"
-        ],
-        [
-          "hole_clearance|140000000|74000000|f11182ad-c34e-426d-b82c-ed94d01bb9bb|a9cd2f88-3cde-4c24-af47-94c1d1b9ed47",
-          ""
-        ],
-        [
-          "hole_clearance|163000000|132000000|21c62a7a-d0dc-42a0-903b-6fa64f4545d7|f3863113-96e0-4bc5-baee-634c192ce6ca",
-          "SMT standoff footprint"
-        ],
-        [
-          "hole_clearance|163000000|74000000|9307b463-096e-47f3-b65e-0471368a3c14|83952f35-2e7c-4d1a-8066-614065a67b57",
-          "SMT standoff footprint"
         ]
       ],
       "meta": {
@@ -354,7 +310,7 @@
         "min_connection": 0.15,
         "min_copper_edge_clearance": 1.0,
         "min_groove_width": 0.0,
-        "min_hole_clearance": 0.25,
+        "min_hole_clearance": 0.35,
         "min_hole_to_hole": 0.25,
         "min_microvia_diameter": 0.2,
         "min_microvia_drill": 0.1,
@@ -364,8 +320,8 @@
         "min_text_thickness": 0.15,
         "min_through_hole_diameter": 0.3,
         "min_track_width": 0.2,
-        "min_via_annular_width": 0.1,
-        "min_via_diameter": 0.5,
+        "min_via_annular_width": 0.15,
+        "min_via_diameter": 0.6,
         "solder_mask_to_copper_clearance": 0.0,
         "use_height_for_length_calcs": true
       },
