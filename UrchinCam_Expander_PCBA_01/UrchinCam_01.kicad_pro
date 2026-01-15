@@ -284,10 +284,6 @@
         [
           "hole_clearance|163000000|74000000|9307b463-096e-47f3-b65e-0471368a3c14|83952f35-2e7c-4d1a-8066-614065a67b57",
           "SMT standoff footprint"
-        ],
-        [
-          "lib_footprint_mismatch|157500000|84757500|15e07c01-50fc-4657-9cd3-2e606a1dea55|00000000-0000-0000-0000-000000000000",
-          "Double-checked footprint - it is accurate."
         ]
       ],
       "meta": {

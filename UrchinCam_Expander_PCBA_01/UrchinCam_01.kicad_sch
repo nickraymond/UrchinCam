@@ -10088,6 +10088,16 @@
 	)
 	(wire
 		(pts
+			(xy 83.82 213.36) (xy 83.82 220.98)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "0841be14-4ab9-4b7f-b915-225b158c73eb")
+	)
+	(wire
+		(pts
 			(xy 283.21 223.52) (xy 267.97 223.52)
 		)
 		(stroke
@@ -10588,16 +10598,6 @@
 	)
 	(wire
 		(pts
-			(xy 83.82 226.06) (xy 83.82 231.14)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "2c84f524-4f76-4872-a6ad-c5fe2d7e5d77")
-	)
-	(wire
-		(pts
 			(xy 252.73 237.49) (xy 252.73 240.03)
 		)
 		(stroke
@@ -10635,6 +10635,16 @@
 			(type default)
 		)
 		(uuid "2e549808-c89d-4c4c-8103-c6955e4eeafa")
+	)
+	(wire
+		(pts
+			(xy 83.82 226.06) (xy 83.82 231.14)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "2e8b9002-acb5-43c9-8a17-6f27c69036db")
 	)
 	(wire
 		(pts
@@ -10905,6 +10915,16 @@
 			(type default)
 		)
 		(uuid "4482ce45-9efa-40ab-8fba-5f1eae4e2f4e")
+	)
+	(wire
+		(pts
+			(xy 69.85 200.66) (xy 69.85 220.98)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "45998b86-60dc-4cf3-8b16-61ac5bc2d0a0")
 	)
 	(wire
 		(pts
@@ -11218,16 +11238,6 @@
 	)
 	(wire
 		(pts
-			(xy 83.82 220.98) (xy 83.82 213.36)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "5edfca25-8cdc-4f67-9861-666b94e488ff")
-	)
-	(wire
-		(pts
 			(xy 181.61 232.41) (xy 181.61 233.68)
 		)
 		(stroke
@@ -11318,16 +11328,6 @@
 	)
 	(wire
 		(pts
-			(xy 69.85 226.06) (xy 69.85 231.14)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "674313ba-8839-4108-8e51-4d7012e7dfcb")
-	)
-	(wire
-		(pts
 			(xy 365.76 68.58) (xy 382.27 68.58)
 		)
 		(stroke
@@ -11365,16 +11365,6 @@
 			(type default)
 		)
 		(uuid "6d54ccd1-0991-4b5d-961a-28c276aae59f")
-	)
-	(wire
-		(pts
-			(xy 69.85 220.98) (xy 69.85 200.66)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "6f3cd3a7-ffc6-4d29-99ac-225cb6b20435")
 	)
 	(wire
 		(pts
@@ -11915,6 +11905,16 @@
 			(type default)
 		)
 		(uuid "a711f6f2-1d46-484f-b83b-d66e66501fe4")
+	)
+	(wire
+		(pts
+			(xy 69.85 226.06) (xy 69.85 231.14)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a9636a1e-167b-4f13-9f65-8bee654431a7")
 	)
 	(wire
 		(pts
@@ -14046,8 +14046,7 @@
 	)
 	(symbol
 		(lib_id "Transformers:TS8121CMHF")
-		(at 100.33 207.01 0)
-		(mirror y)
+		(at 100.33 207.01 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -14056,7 +14055,7 @@
 		(fields_autoplaced yes)
 		(uuid "0dc1d02d-b2d0-4df4-a92e-952913eacd90")
 		(property "Reference" "U6"
-			(at 100.33 190.5 0)
+			(at 100.33 223.52 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14064,7 +14063,7 @@
 			)
 		)
 		(property "Value" "TS8121CMHF"
-			(at 100.33 193.04 0)
+			(at 100.33 220.98 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14090,7 +14089,7 @@
 			)
 		)
 		(property "Description" "SMD 10/100 SINGLE PORT POE 15W"
-			(at 100.076 220.726 0)
+			(at 100.076 193.294 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20030,7 +20029,7 @@
 	)
 	(symbol
 		(lib_id "Resistors:Res_75R_0402_1p")
-		(at 83.82 223.52 0)
+		(at 69.85 223.52 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -20039,7 +20038,7 @@
 		(fields_autoplaced yes)
 		(uuid "9a36891a-3d05-4142-a38c-9d512299686e")
 		(property "Reference" "R14"
-			(at 86.36 222.2499 0)
+			(at 72.39 222.2499 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20048,7 +20047,7 @@
 			)
 		)
 		(property "Value" "75Ω 1%"
-			(at 86.36 224.7899 0)
+			(at 72.39 224.7899 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20057,7 +20056,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
-			(at 85.09 236.474 0)
+			(at 71.12 236.474 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20066,7 +20065,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 83.82 223.52 0)
+			(at 69.85 223.52 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20075,7 +20074,7 @@
 			)
 		)
 		(property "Description" "RES 75 OHM 1% 1/16W 0402 p/n RC0402FR-0775RL"
-			(at 84.582 233.68 0)
+			(at 70.612 233.68 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23151,7 +23150,8 @@
 	)
 	(symbol
 		(lib_id "Connectors:SM04B-GHS")
-		(at 58.42 207.01 180)
+		(at 58.42 207.01 0)
+		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -23160,7 +23160,7 @@
 		(fields_autoplaced yes)
 		(uuid "e69d09e1-7da1-4e34-81a6-320233adac2a")
 		(property "Reference" "J2"
-			(at 55.88 208.2801 0)
+			(at 55.88 205.7399 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23169,7 +23169,7 @@
 			)
 		)
 		(property "Value" "SM04B-GHS"
-			(at 55.88 205.7401 0)
+			(at 55.88 208.2799 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23178,7 +23178,7 @@
 			)
 		)
 		(property "Footprint" "Connector_JST:JST_GH_SM04B-GHS-TB_1x04-1MP_P1.25mm_Horizontal"
-			(at 57.912 195.072 0)
+			(at 57.912 218.948 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23196,7 +23196,7 @@
 			)
 		)
 		(property "Description" "CONN HEADER SMD R/A 4POS 1.25MM"
-			(at 56.896 197.612 0)
+			(at 56.896 216.408 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23565,7 +23565,7 @@
 	)
 	(symbol
 		(lib_id "Resistors:Res_75R_0402_1p")
-		(at 69.85 223.52 0)
+		(at 83.82 223.52 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -23574,7 +23574,7 @@
 		(fields_autoplaced yes)
 		(uuid "fb7ff3b3-385e-4d93-a2e7-a5e23d59c325")
 		(property "Reference" "R13"
-			(at 72.39 222.2499 0)
+			(at 86.36 222.2499 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23583,7 +23583,7 @@
 			)
 		)
 		(property "Value" "75Ω 1%"
-			(at 72.39 224.7899 0)
+			(at 86.36 224.7899 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23592,7 +23592,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
-			(at 71.12 236.474 0)
+			(at 85.09 236.474 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23601,7 +23601,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 69.85 223.52 0)
+			(at 83.82 223.52 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23610,7 +23610,7 @@
 			)
 		)
 		(property "Description" "RES 75 OHM 1% 1/16W 0402 p/n RC0402FR-0775RL"
-			(at 70.612 233.68 0)
+			(at 84.582 233.68 0)
 			(effects
 				(font
 					(size 1.27 1.27)
