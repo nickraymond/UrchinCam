@@ -5078,6 +5078,86 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Mechanical:Fiducial"
+			(exclude_from_sim no)
+			(in_bom no)
+			(on_board yes)
+			(property "Reference" "FID"
+				(at 0 5.08 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "Fiducial"
+				(at 0 3.175 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "~"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Fiducial Marker"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "fiducial marker"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "Fiducial*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "Fiducial_0_1"
+				(circle
+					(center 0 0)
+					(radius 1.27)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Motor_Drivers:MP6550"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -9278,7 +9358,7 @@
 		)
 		(uuid "10517365-0fd5-4026-8b49-6f5f9834cb80")
 	)
-	(text "Power In (18-24VDC)"
+	(text "Power In (6.5 - 36 VDC)"
 		(exclude_from_sim no)
 		(at 58.928 60.198 0)
 		(effects
@@ -9300,7 +9380,7 @@
 	)
 	(text "Power rail test points"
 		(exclude_from_sim no)
-		(at 352.552 127.508 0)
+		(at 341.122 121.158 0)
 		(effects
 			(font
 				(size 2.032 2.032)
@@ -9330,7 +9410,7 @@
 	)
 	(text "M2.5 Unplated TH Mounting"
 		(exclude_from_sim no)
-		(at 353.06 154.178 0)
+		(at 341.63 147.828 0)
 		(effects
 			(font
 				(size 2.032 2.032)
@@ -9378,6 +9458,26 @@
 			(justify left)
 		)
 		(uuid "da093619-1f4d-43db-b2e4-9c25466e0263")
+	)
+	(text "5V connection\n(alternate power source -\nexternal battery)"
+		(exclude_from_sim no)
+		(at 58.166 86.106 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+			)
+		)
+		(uuid "df357856-91e6-4cd3-aff2-afac150a474d")
+	)
+	(text "Fiducials"
+		(exclude_from_sim no)
+		(at 340.868 167.386 0)
+		(effects
+			(font
+				(size 2.032 2.032)
+			)
+		)
+		(uuid "f4205193-d023-444e-a891-03ab18307977")
 	)
 	(text "40-pin Header to Raspberry Pi Zero 2W"
 		(exclude_from_sim no)
@@ -13596,7 +13696,7 @@
 	)
 	(symbol
 		(lib_id "Connector:TestPoint")
-		(at 359.41 116.84 180)
+		(at 347.98 110.49 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -13604,7 +13704,7 @@
 		(dnp no)
 		(uuid "00759b1b-0aaf-4df5-b7ab-c049b2686d90")
 		(property "Reference" "TP4"
-			(at 362.966 120.142 0)
+			(at 351.536 113.792 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13612,7 +13712,7 @@
 			)
 		)
 		(property "Value" "TestPoint"
-			(at 356.87 120.142 90)
+			(at 345.44 113.792 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13621,7 +13721,7 @@
 			)
 		)
 		(property "Footprint" "TestPoint:TestPoint_Pad_D1.5mm"
-			(at 354.33 116.84 0)
+			(at 342.9 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13630,7 +13730,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 354.33 116.84 0)
+			(at 342.9 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13639,7 +13739,7 @@
 			)
 		)
 		(property "Description" "test point"
-			(at 359.41 116.84 0)
+			(at 347.98 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13654,6 +13754,71 @@
 			(project "UrchinCam_01"
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "TP4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+5V")
+		(at 60.96 74.93 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "016def79-79c6-4b03-82f4-030e5a42b283")
+		(property "Reference" "#PWR050"
+			(at 60.96 78.74 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+5V"
+			(at 60.452 70.358 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 60.96 74.93 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 60.96 74.93 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+5V\""
+			(at 60.96 74.93 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "cbd3ca95-72c1-4f7b-b0f1-5da1fd4da3ec")
+		)
+		(instances
+			(project "UrchinCam_01"
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "#PWR050")
 					(unit 1)
 				)
 			)
@@ -14296,6 +14461,70 @@
 			(project "UrchinCam_01"
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "TP10")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:Fiducial")
+		(at 346.71 160.02 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "125c176e-7152-4d23-a66b-7c449e241cba")
+		(property "Reference" "FID3"
+			(at 349.25 158.7499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "Fiducial"
+			(at 349.25 161.2899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Fiducial:Fiducial_0.5mm_Mask1mm"
+			(at 346.71 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 346.71 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Fiducial Marker"
+			(at 346.71 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "FID3")
 					(unit 1)
 				)
 			)
@@ -14975,7 +15204,7 @@
 	)
 	(symbol
 		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
-		(at 331.47 147.32 0)
+		(at 320.04 140.97 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -14984,7 +15213,7 @@
 		(fields_autoplaced yes)
 		(uuid "1eaf7b97-1849-4fc9-9d64-a623769293ad")
 		(property "Reference" "H1"
-			(at 334.01 146.0499 0)
+			(at 322.58 139.6999 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14993,7 +15222,7 @@
 			)
 		)
 		(property "Value" "M2.5"
-			(at 334.01 148.5899 0)
+			(at 322.58 142.2399 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15002,7 +15231,7 @@
 			)
 		)
 		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
-			(at 332.486 152.4 0)
+			(at 321.056 146.05 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15011,7 +15240,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 331.47 147.32 0)
+			(at 320.04 140.97 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15020,7 +15249,7 @@
 			)
 		)
 		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
-			(at 331.724 154.686 0)
+			(at 320.294 148.336 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15039,7 +15268,7 @@
 	)
 	(symbol
 		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
-		(at 369.57 147.32 0)
+		(at 358.14 140.97 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15048,7 +15277,7 @@
 		(fields_autoplaced yes)
 		(uuid "22863ce1-697f-4ea0-8ce9-fc3958b21b87")
 		(property "Reference" "H4"
-			(at 372.11 146.0499 0)
+			(at 360.68 139.6999 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15057,7 +15286,7 @@
 			)
 		)
 		(property "Value" "M2.5"
-			(at 372.11 148.5899 0)
+			(at 360.68 142.2399 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15066,7 +15295,7 @@
 			)
 		)
 		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
-			(at 370.586 152.4 0)
+			(at 359.156 146.05 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15075,7 +15304,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 369.57 147.32 0)
+			(at 358.14 140.97 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15084,7 +15313,7 @@
 			)
 		)
 		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
-			(at 369.824 154.686 0)
+			(at 358.394 148.336 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15167,8 +15396,79 @@
 		)
 	)
 	(symbol
+		(lib_id "Connectors:SM02B-GHS")
+		(at 55.88 76.2 0)
+		(mirror y)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "242f0f43-ef18-4c39-b134-6d85b8585c96")
+		(property "Reference" "J6"
+			(at 53.34 74.9299 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "SM02B-GHS"
+			(at 53.34 77.4699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Connector_JST:JST_GH_SM02B-GHS-TB_1x02-1MP_P1.25mm_Horizontal"
+			(at 55.118 85.598 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 55.88 76.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "CONN HEADER SMD R/A 2POS 1.25MM"
+			(at 56.134 83.058 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "c84d3c73-4b26-42d4-856c-91ab715393e4")
+		)
+		(pin "1"
+			(uuid "911bb013-dd0e-4df6-86dc-3931bb0ba63d")
+		)
+		(instances
+			(project "UrchinCam_01"
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "J6")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Connector:TestPoint")
-		(at 350.52 116.84 180)
+		(at 339.09 110.49 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15176,7 +15476,7 @@
 		(dnp no)
 		(uuid "25558c6e-7afa-4df8-abdc-3d3dbc60fb77")
 		(property "Reference" "TP3"
-			(at 353.822 120.142 0)
+			(at 342.392 113.792 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15184,7 +15484,7 @@
 			)
 		)
 		(property "Value" "TestPoint"
-			(at 347.98 120.142 90)
+			(at 336.55 113.792 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15193,7 +15493,7 @@
 			)
 		)
 		(property "Footprint" "TestPoint:TestPoint_Pad_D1.5mm"
-			(at 345.44 116.84 0)
+			(at 334.01 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15202,7 +15502,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 345.44 116.84 0)
+			(at 334.01 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15211,7 +15511,7 @@
 			)
 		)
 		(property "Description" "test point"
-			(at 350.52 116.84 0)
+			(at 339.09 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15636,7 +15936,7 @@
 	)
 	(symbol
 		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
-		(at 356.87 147.32 0)
+		(at 345.44 140.97 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15645,7 +15945,7 @@
 		(fields_autoplaced yes)
 		(uuid "2ae08820-ad33-4505-9a8d-a5b02191a32a")
 		(property "Reference" "H3"
-			(at 359.41 146.0499 0)
+			(at 347.98 139.6999 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15654,7 +15954,7 @@
 			)
 		)
 		(property "Value" "M2.5"
-			(at 359.41 148.5899 0)
+			(at 347.98 142.2399 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15663,7 +15963,7 @@
 			)
 		)
 		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
-			(at 357.886 152.4 0)
+			(at 346.456 146.05 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15672,7 +15972,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 356.87 147.32 0)
+			(at 345.44 140.97 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15681,7 +15981,7 @@
 			)
 		)
 		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
-			(at 357.124 154.686 0)
+			(at 345.694 148.336 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15700,7 +16000,7 @@
 	)
 	(symbol
 		(lib_id "Connector:TestPoint")
-		(at 340.36 118.11 0)
+		(at 328.93 111.76 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15708,7 +16008,7 @@
 		(dnp no)
 		(uuid "2df874df-7a74-46ed-b746-bb5853a4071c")
 		(property "Reference" "TP2"
-			(at 344.424 114.808 0)
+			(at 332.994 108.458 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15716,7 +16016,7 @@
 			)
 		)
 		(property "Value" "TestPoint"
-			(at 342.9 114.808 90)
+			(at 331.47 108.458 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15725,7 +16025,7 @@
 			)
 		)
 		(property "Footprint" "TestPoint:TestPoint_Pad_D1.5mm"
-			(at 345.44 118.11 0)
+			(at 334.01 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15734,7 +16034,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 345.44 118.11 0)
+			(at 334.01 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15743,7 +16043,7 @@
 			)
 		)
 		(property "Description" "test point"
-			(at 340.36 118.11 0)
+			(at 328.93 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18326,7 +18626,7 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
-		(at 350.52 116.84 0)
+		(at 339.09 110.49 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -18335,7 +18635,7 @@
 		(fields_autoplaced yes)
 		(uuid "695d21d1-58ab-41f0-8c96-95e599d364d1")
 		(property "Reference" "#PWR011"
-			(at 350.52 120.65 0)
+			(at 339.09 114.3 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18344,7 +18644,7 @@
 			)
 		)
 		(property "Value" "+3V3"
-			(at 350.52 111.76 0)
+			(at 339.09 105.41 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18352,7 +18652,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 350.52 116.84 0)
+			(at 339.09 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18361,7 +18661,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 350.52 116.84 0)
+			(at 339.09 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18370,7 +18670,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 350.52 116.84 0)
+			(at 339.09 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18385,6 +18685,70 @@
 			(project "UrchinCam_01"
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "#PWR011")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:Fiducial")
+		(at 318.77 160.02 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "6a28620a-53a2-431f-8970-bff798564280")
+		(property "Reference" "FID1"
+			(at 321.31 158.7499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "Fiducial"
+			(at 321.31 161.2899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Fiducial:Fiducial_0.5mm_Mask1mm"
+			(at 318.77 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 318.77 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Fiducial Marker"
+			(at 318.77 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "FID1")
 					(unit 1)
 				)
 			)
@@ -18794,6 +19158,70 @@
 			(project ""
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "C13")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:Fiducial")
+		(at 360.68 160.02 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "77c8e5d1-f0ef-4a98-8dc1-997f717d6833")
+		(property "Reference" "FID4"
+			(at 363.22 158.7499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "Fiducial"
+			(at 363.22 161.2899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Fiducial:Fiducial_0.5mm_Mask1mm"
+			(at 360.68 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 360.68 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Fiducial Marker"
+			(at 360.68 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "FID4")
 					(unit 1)
 				)
 			)
@@ -20787,7 +21215,7 @@
 	)
 	(symbol
 		(lib_id "power:+5V")
-		(at 359.41 116.84 0)
+		(at 347.98 110.49 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -20796,7 +21224,7 @@
 		(fields_autoplaced yes)
 		(uuid "b87091fe-fe26-40de-b650-78881142f8aa")
 		(property "Reference" "#PWR012"
-			(at 359.41 120.65 0)
+			(at 347.98 114.3 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20805,7 +21233,7 @@
 			)
 		)
 		(property "Value" "+5V"
-			(at 359.41 111.76 0)
+			(at 347.98 105.41 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20813,7 +21241,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 359.41 116.84 0)
+			(at 347.98 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20822,7 +21250,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 359.41 116.84 0)
+			(at 347.98 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20831,7 +21259,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+5V\""
-			(at 359.41 116.84 0)
+			(at 347.98 110.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -21285,7 +21713,7 @@
 	)
 	(symbol
 		(lib_id "Mounting_Holes:Mounting_Hole_M2.5")
-		(at 344.17 147.32 0)
+		(at 332.74 140.97 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -21294,7 +21722,7 @@
 		(fields_autoplaced yes)
 		(uuid "be8de962-90c7-4f23-bdb5-848fa0dd0b02")
 		(property "Reference" "H2"
-			(at 346.71 146.0499 0)
+			(at 335.28 139.6999 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -21303,7 +21731,7 @@
 			)
 		)
 		(property "Value" "M2.5"
-			(at 346.71 148.5899 0)
+			(at 335.28 142.2399 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -21312,7 +21740,7 @@
 			)
 		)
 		(property "Footprint" "Mounting_Holes:M2.5_Mounting_Hole_2.9mm_unplated"
-			(at 345.186 152.4 0)
+			(at 333.756 146.05 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -21321,7 +21749,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 344.17 147.32 0)
+			(at 332.74 140.97 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -21330,7 +21758,7 @@
 			)
 		)
 		(property "Description" "Mounting Hole M2.5 unplated 2.9mm diameter"
-			(at 344.424 154.686 0)
+			(at 332.994 148.336 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -21411,6 +21839,70 @@
 			(project ""
 				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
 					(reference "C4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:Fiducial")
+		(at 332.74 160.02 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c16699d4-242e-4257-9ac8-3db0935442ac")
+		(property "Reference" "FID2"
+			(at 335.28 158.7499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "Fiducial"
+			(at 335.28 161.2899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Fiducial:Fiducial_0.5mm_Mask1mm"
+			(at 332.74 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 332.74 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Fiducial Marker"
+			(at 332.74 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "FID2")
 					(unit 1)
 				)
 			)
@@ -22669,6 +23161,71 @@
 		)
 	)
 	(symbol
+		(lib_id "power:GND")
+		(at 60.96 77.47 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "ddba499f-30f7-459e-8de3-aa8c0c569368")
+		(property "Reference" "#PWR051"
+			(at 60.96 83.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 65.278 79.248 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 60.96 77.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 60.96 77.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 60.96 77.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "9dfc30a9-7597-4452-a5c6-6b0353084f13")
+		)
+		(instances
+			(project "UrchinCam_01"
+				(path "/71a801ea-23a0-4bb3-891f-1f0b94a910f4"
+					(reference "#PWR051")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "LEDs:19-337C/RSBHGHC-A88/4T")
 		(at 360.68 68.58 0)
 		(unit 1)
@@ -22815,7 +23372,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 340.36 118.11 0)
+		(at 328.93 111.76 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -22823,7 +23380,7 @@
 		(dnp no)
 		(uuid "e46ed255-a209-40dd-ac63-fe29a480e9ff")
 		(property "Reference" "#PWR010"
-			(at 340.36 124.46 0)
+			(at 328.93 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22832,7 +23389,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 344.424 119.888 0)
+			(at 332.994 113.538 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22840,7 +23397,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 340.36 118.11 0)
+			(at 328.93 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22849,7 +23406,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 340.36 118.11 0)
+			(at 328.93 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22858,7 +23415,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 340.36 118.11 0)
+			(at 328.93 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
