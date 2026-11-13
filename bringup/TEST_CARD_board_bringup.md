@@ -83,7 +83,7 @@ needed for bring-up; flag for the IMU work. ADS1115 ALERT/RDY goes only to TP8, 
 
 ## Stage 4: LEDs
 
-`python3 pi/board_check.py leds` lights each color for 1 s. LEDs are common-anode on +3V3; a GPIO low lights it.
+`python3 pi/board_check.py leds` lights each color for 1 s at 2 % brightness (`--level 1` for full on). LEDs are common-anode on +3V3; a GPIO low lights it.
 
 | # | Step | Pass | Result |
 |---|---|---|---|

@@ -3,7 +3,7 @@
 
     python3 board_check.py i2c          # 3.1: expect 0x48 (ADS1115) and 0x4A or 0x4B (BNO085), nothing else
     python3 board_check.py ads          # 3.2: AIN0-AIN3 single-shot at +-4.096 V, bridge asleep
-    python3 board_check.py leds         # 4.1: each LED color for 1 s
+    python3 board_check.py leds         # 4.1: each LED color for 1 s at 2 % brightness (--level 1 = full on)
     python3 board_check.py motor-open   # 6.x: steps the MP6550 truth table with J3 open, prints VISEN
 
 Each prints PASS / FAIL lines against the test card's bars and exits non-zero on any FAIL.
@@ -78,19 +78,36 @@ def cmd_ads(_):
 
 
 def cmd_leds(args):
-    gpio = hw.open_gpio()
+    # Software PWM via gpiozero keeps the LEDs dim on the bench (100 % is very bright); full on if it's missing.
     try:
-        for pin, _ in hw.LEDS:
-            gpio.output(pin, 1)  # high = off (common anode)
-        for pin, label in hw.LEDS:
-            print(f"{label} (GPIO{pin}) on")
-            gpio.output(pin, 0)
-            time.sleep(args.seconds)
-            gpio.output(pin, 1)
-        print("Nick: PASS only if each of the 6 colors lit alone, in that order.")
-        return True
-    finally:
-        gpio.close()
+        from gpiozero import PWMLED
+    except ImportError:
+        PWMLED = None
+    if PWMLED is not None and args.level < 1.0:
+        leds = [(PWMLED(pin, active_high=False, initial_value=0, frequency=500), pin, label) for pin, label in hw.LEDS]
+        try:
+            for led, pin, label in leds:
+                print(f"{label} (GPIO{pin}) on at {args.level * 100:g} %")
+                led.value = args.level
+                time.sleep(args.seconds)
+                led.value = 0
+        finally:
+            for led, _, _ in leds:
+                led.close()
+    else:
+        gpio = hw.open_gpio()
+        try:
+            for pin, _ in hw.LEDS:
+                gpio.output(pin, 1)  # high = off (common anode)
+            for pin, label in hw.LEDS:
+                print(f"{label} (GPIO{pin}) on at 100 %")
+                gpio.output(pin, 0)
+                time.sleep(args.seconds)
+                gpio.output(pin, 1)
+        finally:
+            gpio.close()
+    print("Nick: PASS only if each of the 6 colors lit alone, in that order.")
+    return True
 
 
 def visen_mv(adc):
@@ -135,6 +152,7 @@ def main(argv=None):
     sub.add_parser("ads").set_defaults(fn=cmd_ads)
     leds = sub.add_parser("leds")
     leds.add_argument("--seconds", type=float, default=1.0)
+    leds.add_argument("--level", type=float, default=0.02, help="brightness 0-1 (default 0.02; 1 = full on)")
     leds.set_defaults(fn=cmd_leds)
     mo = sub.add_parser("motor-open")
     mo.add_argument("--seconds", type=float, default=2.0)
