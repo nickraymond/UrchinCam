@@ -4,7 +4,7 @@ One run = N wipe cycles (forward for the stroke time, brake, reverse for the sam
 wipe condition picked from bench_options.json. Each run gets its own folder under RUNS_ROOT:
 
     meta.json      what was run (motor, condition, stroke, cycles, settings, VISEN zeros, source sha, status)
-    samples.csv    every sample: t_s, cycle, state, amps, raw, clipped
+    samples.csv    every sample: t_s, cycle, state, amps, raw, clipped, pot_v (blank between pot reads), angle_deg
     summary.json   per-stroke stats (written when the run ends) and the run's result
 
 Standard library only. Nothing here touches hardware: the control thread hands rows to RunLogger.push().
@@ -28,13 +28,15 @@ OPTIONS_PATH = os.path.join(HERE, "bench_options.json")
 INRUSH_S = 0.05  # start of a stroke left out of the settled stats, as in wipe_logger
 VBUS_NOMINAL = 5.0  # no +5V divider fitted: energy assumes 5.0 V (VISEN_SCALE.md)
 RUN_ID_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z_[A-Za-z0-9_.-]+$")
-SAMPLE_FIELDS = ["t_s", "cycle", "state", "amps", "raw", "clipped"]
+SAMPLE_FIELDS = ["t_s", "cycle", "state", "amps", "raw", "clipped", "pot_v", "angle_deg"]
 METRICS = [  # (key in a stroke record, label)
     ("median_ma", "Median current (mA)"),
     ("mean_ma", "Mean current (mA)"),
     ("p99_ma", "p99 current (mA)"),
     ("peak_ma", "Peak incl. inrush (mA)"),
     ("energy_j", "Energy (J)"),
+    ("sweep_deg", "Sweep (deg)"),
+    ("speed_dps", "Mean speed (deg/s)"),
 ]
 
 
@@ -126,8 +128,10 @@ class RunLogger:
             self._finalize(item[1])
             return
         row = item
+        pot_v, angle = row.get("pot_v"), row.get("angle")
         self.w.writerow([f"{row['t_s']:.5f}", row.get("cycle") or "", row["state"], f"{row['amps']:.5f}",
-                         row["raw"], int(row["clipped"])])
+                         row["raw"], int(row["clipped"]), "" if pot_v is None else f"{pot_v:.5f}",
+                         "" if angle is None else f"{angle:.2f}"])
         self.clipped += int(row["clipped"])
         state = row["state"]
         if state in ("fwd", "rev"):
@@ -135,7 +139,8 @@ class RunLogger:
             if self.cur is None or self.cur[:2] != key:
                 self._close_stroke()
                 self.cur = (key[0], key[1], [])
-            self.cur[2].append({"t_s": row["t_s"], "amps": row["amps"], "clipped": row["clipped"]})
+            self.cur[2].append({"t_s": row["t_s"], "amps": row["amps"], "clipped": row["clipped"],
+                                "angle": row.get("angle")})
         else:
             self._close_stroke()
 
@@ -147,12 +152,16 @@ class RunLogger:
         st = wa.stroke_stats(rows, VBUS_NOMINAL, INRUSH_S)
         # the last sample lands at most one sample period short of the stroke time
         complete = st["duration_s"] >= self.meta["stroke_s"] - 0.02
+        angles = [r["angle"] for r in rows if r["angle"] is not None]
+        sweep = angles[-1] - angles[0] if len(angles) >= 2 else None
         self.strokes.append({
             "cycle": cycle, "dir": direction, "complete": complete, "n": st["n"],
             "duration_s": round(st["duration_s"], 4),
             "mean_ma": _ma(st["mean_amps"]), "median_ma": _ma(st["median_after_inrush_amps"]),
             "p99_ma": _ma(st["p99_after_inrush_amps"]), "peak_ma": _ma(st["peak_amps"]),
             "energy_j": round(st["energy_j"], 4), "clipped": sum(1 for r in rows if r["clipped"]),
+            "sweep_deg": None if sweep is None else round(sweep, 2),
+            "speed_dps": None if sweep is None or not st["duration_s"] else round(abs(sweep) / st["duration_s"], 2),
         })
 
     def _finalize(self, result):
@@ -281,10 +290,11 @@ def trace(root, run_id, max_points=4000):
     """The run's current for plotting: min and max of each time bucket, so short spikes survive."""
     d = run_dir(root, run_id)
     with open(os.path.join(d, "samples.csv"), newline="") as f:
-        rows = [(float(r["t_s"]), float(r["amps"]), r["state"][0]) for r in csv.DictReader(f)]
+        rows = [(float(r["t_s"]), float(r["amps"]), r["state"][0],
+                 float(r["angle_deg"]) if r.get("angle_deg") else None) for r in csv.DictReader(f)]
     buckets = max(1, max_points // 2)
     k = max(1, -(-len(rows) // buckets))
-    t, a, s = [], [], []
+    t, a, s, g = [], [], [], []
     for i in range(0, len(rows), k):
         chunk = rows[i:i + k]
         lo = min(chunk, key=lambda r: r[1])
@@ -293,4 +303,5 @@ def trace(root, run_id, max_points=4000):
             t.append(round(r[0], 4))
             a.append(round(r[1], 5))
             s.append(r[2])
-    return {"t": t, "a": a, "s": s}
+            g.append(None if r[3] is None else round(r[3], 1))
+    return {"t": t, "a": a, "s": s, "g": g}

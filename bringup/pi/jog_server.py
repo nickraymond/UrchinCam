@@ -31,6 +31,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import bench_runs as br
+import pot as potmod
 import wipe_analysis as wa
 import wipe_logger as wl
 
@@ -56,8 +57,14 @@ class JogController:
     States: "asleep" (nSLEEP_HB low), "fwd", "rev", "brake".
     """
 
-    def __init__(self, motor, sampler, clock=time.monotonic, show=lambda phase: None, buf_s=12.0, rate=860):
+    def __init__(self, motor, sampler, clock=time.monotonic, show=lambda phase: None, buf_s=12.0, rate=860,
+                 pot=None, pot_every=0):
         self.motor, self.sampler, self.clock, self.show = motor, sampler, clock, show
+        # Shaft angle: every `pot_every` samples, one single-shot read of AIN2, then AIN0 continuous again.
+        self.pot, self.pot_every, self.ticks = pot, pot_every, 0
+        self.angle = None
+        self.pot_v = None
+        self.pot_errors = 0
         self.lock = threading.Lock()
         self.settings = {k: v[0] for k, v in LIMITS.items()}
         self.state = "asleep"
@@ -232,9 +239,11 @@ class JogController:
                 if self.detector.update(t, s["amps"]):
                     self._stop(now, f"stall cut-off ({self.settings['stall_amps']:g} A for "
                                     f"{self.settings['stall_ms']:g} ms)")
+            pot_v = self._read_pot()
             self.seq += 1
             row = {"seq": self.seq, "t_s": t, "state": self.state, "amps": s["amps"], "visen_v": s["visen_v"],
-                   "raw": s["raw"], "clipped": s["clipped"], "cycle": self.cycle_i if self.run else None}
+                   "raw": s["raw"], "clipped": s["clipped"], "cycle": self.cycle_i if self.run else None,
+                   "pot_v": pot_v, "angle": self.angle}
             self.buf.append(row)
             if self.run is not None:
                 self.run.push(row)
@@ -242,6 +251,41 @@ class JogController:
                     self.run.finish(self.cycle_result)
                     self.run = None
             return row
+
+    def _read_pot(self):
+        """Every pot_every ticks: AIN2 single-shot (the ADC leaves continuous mode), then AIN0 continuous again.
+        Costs about one conversion plus the restart, so the current rate drops a little (see the status)."""
+        self.ticks += 1
+        if not self.pot or not self.pot_every or self.ticks % self.pot_every:
+            return None
+        v = None
+        try:
+            v = self.sampler.adc.single_shot(potmod.POT_CHANNEL, potmod.POT_FSR)[1]
+            self.pot_v = v
+            self.angle = self.pot.update(v)
+        except (OSError, TimeoutError):
+            self.pot_errors += 1
+        try:
+            self.sampler.begin()
+        except OSError:
+            self.pot_errors += 1
+        return v
+
+    def zero_angle(self):
+        with self.lock:
+            if not self.pot:
+                raise ValueError("no pot")
+            cal = self.pot.zero_here()
+            self.angle = self.pot.angle
+            return cal
+
+    def flip_angle(self):
+        with self.lock:
+            if not self.pot:
+                raise ValueError("no pot")
+            cal = self.pot.flip()
+            self.angle = self.pot.angle
+            return cal
 
     def logging_now(self):
         return self.state != "asleep" or (self.last_stop is not None and self.clock() - self.last_stop < LOG_TAIL_S)
@@ -267,6 +311,8 @@ class JogController:
                     "peak_a": round(self.peak, 4), "settings": dict(self.settings), "events": list(self.events),
                     "clipped": self.clipped, "i2c_errors": self.i2c_errors, "fault": self.fault,
                     "tick_age_s": round(now - self.last_tick, 3),
+                    "angle": None if self.angle is None else round(self.angle, 2), "pot_v": self.pot_v,
+                    "pot_errors": self.pot_errors, "pot_cal": dict(self.pot.cal) if self.pot else None,
                     "zero_mv": {k: round(v * 1000, 3) for k, v in self.sampler.zero_v.items()}}
 
 
@@ -317,7 +363,7 @@ def throttled():
 
 
 class Recorder:
-    FIELDS = ["t_s", "state", "amps", "visen_v", "raw", "clipped"]
+    FIELDS = ["t_s", "state", "amps", "visen_v", "raw", "clipped", "pot_v", "angle"]
 
     def __init__(self, run_dir):
         self.path = os.path.join(run_dir, "samples.csv")
@@ -328,7 +374,9 @@ class Recorder:
 
     def write(self, row):
         self.w.writerow({**row, "t_s": f"{row['t_s']:.5f}", "amps": f"{row['amps']:.5f}",
-                         "visen_v": f"{row['visen_v']:.6f}", "clipped": int(row["clipped"])})
+                         "visen_v": f"{row['visen_v']:.6f}", "clipped": int(row["clipped"]),
+                         "pot_v": "" if row.get("pot_v") is None else f"{row['pot_v']:.5f}",
+                         "angle": "" if row.get("angle") is None else f"{row['angle']:.2f}"})
         self.n += 1
         if self.n % 860 == 0:
             self.f.flush()
@@ -351,7 +399,8 @@ def start_run(ctrl, body, extra, root=br.RUNS_ROOT, options_path=br.OPTIONS_PATH
             "cycles": min(MAX_CYCLES, max(1, int(body["cycles"]))),
             "pause_s": min(PAUSE_S[1], max(PAUSE_S[0], float(body.get("pause_s", 1.0)))),
             "notes": str(body.get("notes", ""))[:500], "settings": ctrl.status()["settings"],
-            "fsr": extra.get("fsr"), "zero_mv": ctrl.status()["zero_mv"], "source_sha": extra.get("sha")}
+            "fsr": extra.get("fsr"), "zero_mv": ctrl.status()["zero_mv"], "source_sha": extra.get("sha"),
+            "pot_cal": ctrl.status()["pot_cal"]}
     run = br.RunLogger(meta, root=root)
     try:
         ctrl.request("cycle", meta["stroke_s"], meta["cycles"], meta["pause_s"], run=run)
@@ -434,6 +483,7 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
                         msg = {"t": [round(r["t_s"], 4) for r in rows],
                                "a": [round(r["amps"], 5) for r in rows],
                                "s": [r["state"][0] for r in rows],  # a f r b
+                               "g": [None if r.get("angle") is None else round(r["angle"], 1) for r in rows],
                                "status": {**ctrl.status(), **extra}}
                         self.wfile.write(f"data: {json.dumps(msg)}\n\n".encode())
                         self.wfile.flush()
@@ -452,6 +502,10 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
                     ctrl.heartbeat()
                 elif self.path == "/settings":
                     return self._send(200, json.dumps(ctrl.set_settings(body)))
+                elif self.path == "/pot/zero":
+                    return self._send(200, json.dumps(ctrl.zero_angle()))
+                elif self.path == "/pot/flip":
+                    return self._send(200, json.dumps(ctrl.flip_angle()))
                 elif self.path == "/api/run/start":
                     return self._send(200, json.dumps({"id": start_run(ctrl, body, extra, runs_root)}))
                 elif self.path.startswith("/api/runs/") and self.path.endswith("/include"):
@@ -476,6 +530,8 @@ def main(argv=None):
     p.add_argument("--rate", type=int, default=860, choices=[128, 250, 475, 860])
     p.add_argument("--r-iset", type=float, default=2000.0)
     p.add_argument("--led-level", type=float, default=0.02, help="LED1 phase colors; 0 = off")
+    p.add_argument("--pot-every", type=int, default=10,
+                   help="read the shaft pot (AIN2) every N current samples; 0 = no pot (pot.py)")
     args = p.parse_args(argv)
     import urchin_hw as hw
 
@@ -495,7 +551,9 @@ def main(argv=None):
     sampler.begin()
     zeros = measure_all_zeros(motor, sampler, period)
     print(f"VISEN zeros (mV): { {k: round(v * 1000, 3) for k, v in zeros.items()} }")
-    ctrl = JogController(motor, sampler, show=leds.show if leds else (lambda phase: None), rate=args.rate)
+    pot = potmod.PotAngle(potmod.load_cal(), path=potmod.CAL_PATH) if args.pot_every > 0 else None
+    ctrl = JogController(motor, sampler, show=leds.show if leds else (lambda phase: None), rate=args.rate,
+                         pot=pot, pot_every=args.pot_every)
     rec = Recorder(run_dir)
     extra = {"throttled": throttled(), "fsr": args.fsr, "run_dir": run_dir, "i2c_retries": 0,
              "sha": deployed_sha()}

@@ -61,6 +61,10 @@ button { font: inherit; color: var(--ink); background: var(--btn); border: 1px s
 .seg button { padding: 4px 10px; font-size: 13px; border-radius: 6px; }
 .seg button.on { background: var(--ink); color: var(--panel); }
 canvas { width: 100%; height: 320px; display: block; }
+canvas#aplot { height: 200px; }
+.angle-head { display: flex; gap: 18px; align-items: end; flex-wrap: wrap; margin-bottom: 8px; }
+.angle-head .btns { margin-left: auto; display: flex; gap: 6px; }
+.angle-head .btns button { padding: 5px 10px; font-size: 13px; }
 .settings { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
 .settings label { font-size: 12px; color: var(--ink2); display: grid; gap: 3px; }
 .settings input { font: inherit; width: 96px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px;
@@ -120,6 +124,17 @@ ul.events li:first-child { border-top: 0; }
   </section>
 
   <section class="panel">
+    <div class="angle-head">
+      <div class="stat"><div class="k">Shaft angle</div><div class="v"><span id="ang">—</span> <small>°</small></div></div>
+      <div class="stat"><div class="k">Speed (0.2 s)</div><div class="v"><span id="spd">—</span> <small>°/s</small></div></div>
+      <div class="stat"><div class="k">Speed</div><div class="v"><span id="rpm">—</span> <small>RPM</small></div></div>
+      <div class="btns"><button id="b-zero">Zero angle here</button><button id="b-flip">Flip direction</button></div>
+    </div>
+    <canvas id="aplot"></canvas>
+    <div class="note" id="pot-note">Shaft angle from the pot (degrees, same time window as the current plot).</div>
+  </section>
+
+  <section class="panel">
     <div class="settings">
       <label>Stall cut-off (A)<input id="s-amps" type="number" step="0.05" min="0.05" max="4"></label>
       <label>for (ms)<input id="s-ms" type="number" step="10" min="20" max="2000"></label>
@@ -142,7 +157,7 @@ ul.events li:first-child { border-top: 0; }
 const $ = id => document.getElementById(id);
 const mA = a => { const v = Math.round(a * 1000); return String(v === 0 ? 0 : v); };  // no "-0"
 const KEEP_S = 60, TAP_MS = 300, HB_MS = 200;
-const T = [], A = [], S = [];
+const T = [], A = [], S = [], G = [];
 let status = null, winS = 10, paused = false, hover = null, dirty = true;
 
 // ---------- stream ----------
@@ -152,11 +167,11 @@ function connect() {
   es.onerror = () => { $("conn").textContent = "lost: motor stops on its own"; $("conn").className = "pill bad"; };
   es.onmessage = ev => {
     const m = JSON.parse(ev.data);
-    for (let i = 0; i < m.t.length; i++) { T.push(m.t[i]); A.push(m.a[i]); S.push(m.s[i]); }
+    for (let i = 0; i < m.t.length; i++) { T.push(m.t[i]); A.push(m.a[i]); S.push(m.s[i]); G.push(m.g ? m.g[i] : null); }
     if (T.length) {
       const cut = T[T.length - 1] - KEEP_S;
       let k = 0; while (k < T.length && T[k] < cut) k++;
-      if (k) { T.splice(0, k); A.splice(0, k); S.splice(0, k); }
+      if (k) { T.splice(0, k); A.splice(0, k); S.splice(0, k); G.splice(0, k); }
     }
     status = m.status; render(); dirty = true;
   };
@@ -195,6 +210,20 @@ function render() {
       ul.appendChild(li);
     }
   }
+  // shaft angle and speed (speed from the angle 0.2 s ago)
+  if (st.angle == null) { $("ang").textContent = "—"; $("spd").textContent = "—"; $("rpm").textContent = "—"; }
+  else {
+    $("ang").textContent = st.angle.toFixed(1);
+    let j = G.length - 1; while (j >= 0 && G[j] == null) j--;
+    let i = j; while (i > 0 && (G[i - 1] == null || T[j] - T[i - 1] <= 0.2)) i--;
+    while (i < j && G[i] == null) i++;
+    if (j > i && T[j] - T[i] > 0.1) {
+      const dps = (G[j] - G[i]) / (T[j] - T[i]);
+      $("spd").textContent = dps.toFixed(0); $("rpm").textContent = (dps / 6).toFixed(1);
+    }
+  }
+  if (st.pot_cal) $("pot-note").textContent = `Shaft angle from the pot: ${st.pot_cal.deg_per_v} °/V (${st.pot_cal.source}). ` +
+    `Pot ${st.pot_v == null ? "—" : st.pot_v.toFixed(3) + " V"} · read errors ${st.pot_errors}. Same time window as the current plot.`;
   const z = st.zero_mv || {};
   $("foot").textContent = `ADC ±${st.fsr} V · zeros fwd ${z.fwd} / rev ${z.rev} / asleep ${z.sleep} mV · clipped ${st.clipped} · I2C retries ${st.i2c_retries} · I2C failed reads ${st.i2c_errors} · log ${st.run_dir}`;
   // a safety stop (stall, max time, lost contact) clears a latched button
@@ -266,6 +295,10 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" || e.key === 
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopAll(); });
 window.addEventListener("pagehide", stopAll);
 
+// ---------- pot ----------
+$("b-zero").addEventListener("click", () => post("/pot/zero"));
+$("b-flip").addEventListener("click", () => post("/pot/flip"));
+
 // ---------- settings ----------
 for (const id of ["s-amps", "s-ms", "s-max"]) $(id).addEventListener("input", () => { $(id).dataset.edited = "1"; });
 $("apply").addEventListener("click", async () => {
@@ -282,7 +315,7 @@ for (const b of $("win").querySelectorAll("button")) b.addEventListener("click",
 });
 $("pause").addEventListener("click", () => {
   paused = !paused; $("pause").textContent = paused ? "Resume plot" : "Pause plot"; dirty = true;
-  frozen = paused ? { T: T.slice(), A: A.slice(), S: S.slice() } : null;
+  frozen = paused ? { T: T.slice(), A: A.slice(), S: S.slice(), G: G.slice() } : null;
 });
 let frozen = null;
 const cv = $("plot"), ctx = cv.getContext("2d");
@@ -295,6 +328,7 @@ function niceStep(range) { const raw = range / 5, p = Math.pow(10, Math.floor(Ma
 function draw() {
   requestAnimationFrame(draw);
   if (!dirty) return; dirty = false;
+  drawAngle(frozen || { T, A, S, G });
   const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
   if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
@@ -360,6 +394,47 @@ function draw() {
     ctx.fillStyle = css("--panel"); ctx.strokeStyle = css("--line"); ctx.fillRect(bx, Tp + 2, w, 20); ctx.strokeRect(bx, Tp + 2, w, 20);
     ctx.fillStyle = css("--ink"); ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(label, bx + 6, Tp + 12);
   }
+}
+const acv = $("aplot"), actx = acv.getContext("2d");
+function drawAngle(d) {
+  const dpr = window.devicePixelRatio || 1, W = acv.clientWidth, H = acv.clientHeight;
+  if (acv.width !== W * dpr || acv.height !== H * dpr) { acv.width = W * dpr; acv.height = H * dpr; }
+  actx.setTransform(dpr, 0, 0, dpr, 0, 0); actx.clearRect(0, 0, W, H);
+  const L = 52, R = 10, Tp = 8, B = 26, pw = W - L - R, ph = H - Tp - B;
+  const tEnd = d.T.length ? d.T[d.T.length - 1] : 0, tStart = tEnd - winS, i0 = lowerBound(d.T, tStart);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = i0; i < d.T.length; i++) { const g = d.G[i]; if (g == null) continue; if (g < lo) lo = g; if (g > hi) hi = g; }
+  if (lo === Infinity) { lo = -45; hi = 45; }
+  const pad = Math.max(10, (hi - lo) * 0.1); lo -= pad; hi += pad;
+  const step = niceStep(hi - lo); lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const X = t => L + (t - tStart) / winS * pw, Y = v => Tp + (hi - v) / (hi - lo) * ph;
+  const bands = { f: css("--fwd-band"), r: css("--rev-band") };
+  let runStart = null, runS = null;
+  for (let i = i0; i <= d.T.length; i++) {
+    const s = i < d.T.length ? d.S[i] : null;
+    if (s !== runS) {
+      if (runS === "f" || runS === "r") { actx.fillStyle = bands[runS]; actx.fillRect(X(runStart), Tp, X(d.T[i - 1]) - X(runStart), ph); }
+      runS = s; runStart = i < d.T.length ? d.T[i] : null;
+    }
+  }
+  actx.strokeStyle = css("--grid"); actx.fillStyle = css("--muted"); actx.lineWidth = 1;
+  actx.font = "11px -apple-system, sans-serif"; actx.textAlign = "right"; actx.textBaseline = "middle";
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    const y = Math.round(Y(v)) + .5; actx.beginPath(); actx.moveTo(L, y); actx.lineTo(L + pw, y); actx.stroke();
+    actx.fillText(`${+v.toFixed(1)}°`, L - 6, y);
+  }
+  actx.textAlign = "center"; actx.textBaseline = "top";
+  const ts = winS <= 10 ? 1 : winS <= 30 ? 5 : 10;
+  for (let k = 0; k <= winS; k += ts) actx.fillText(k ? `−${k} s` : "now", X(tEnd - k), Tp + ph + 6);
+  actx.strokeStyle = css("--trace"); actx.lineWidth = 2; actx.lineJoin = "round"; actx.beginPath();
+  let first = true;
+  for (let i = i0; i < d.T.length; i++) {
+    const g = d.G[i]; if (g == null) continue;
+    if (first) { actx.moveTo(X(d.T[i]), Y(g)); first = false; } else actx.lineTo(X(d.T[i]), Y(g));
+  }
+  actx.stroke();
+  if (first) { actx.fillStyle = css("--muted"); actx.textAlign = "center"; actx.textBaseline = "middle";
+    actx.fillText("no pot readings", L + pw / 2, Tp + ph / 2); }
 }
 window.addEventListener("resize", () => { dirty = true; });
 connect(); requestAnimationFrame(draw);

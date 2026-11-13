@@ -15,6 +15,7 @@ import bench_runs  # noqa: E402
 import board_check  # noqa: E402
 import jog_server  # noqa: E402
 import plot_run  # noqa: E402
+import pot  # noqa: E402
 import urchin_hw as hw  # noqa: E402
 import wipe_analysis as wa  # noqa: E402
 import wipe_logger  # noqa: E402
@@ -66,11 +67,31 @@ class SimMotorADC:
         gpio.output = output
         self.wipe_phase = None
 
+    # A shaft pot on AIN2 that turns with the motor: pot_vps volts per second, wrapping 3.35 V -> 0 like cam02's.
+    pot_v, pot_vps, pot_last_t = 1.5, 0.5, None
+
     def start_continuous(self, channel, fsr=None):
         pass
 
+    def _turn_pot(self):
+        now = self.clock.t
+        if self.pot_last_t is not None:
+            g = self.gpio.levels
+            a, b = g.get(hw.GPIO_IN1, 0), g.get(hw.GPIO_IN2, 0)
+            d = (1 if (a, b) == (1, 0) else -1 if (a, b) == (0, 1) else 0) if g.get(hw.GPIO_NSLEEP_HB) else 0
+            self.pot_v = (self.pot_v + d * self.pot_vps * (now - self.pot_last_t)) % 3.35
+        self.pot_last_t = now
+
+    def single_shot(self, channel, fsr):
+        self.clock.t += 0.0015  # one conversion at 860 SPS
+        self._turn_pot()
+        if channel != 2:
+            raise ValueError("sim has only the pot on AIN2")
+        return int(self.pot_v / fsr * 32768), self.pot_v
+
     def read_raw(self):
         self.clock.t += 0.0003  # an I2C read takes time
+        self._turn_pot()
         g = self.gpio.levels
         if not g.get(hw.GPIO_NSLEEP_HB):
             amps = 0.0
@@ -327,14 +348,16 @@ class TestArgs(unittest.TestCase):
 
 
 class TestJog(unittest.TestCase):
-    def _ctrl(self, **settings):
+    def _ctrl(self, pot_every=0, **settings):
         clock, gpio = FakeClock(), FakeGpio()
         motor = hw.Motor(gpio)
         adc = SimMotorADC(gpio, clock, fsr=1.024, stall_a=0.80)
         sampler = wipe_logger.Sampler(adc, 1.024, 2000.0)
         sampler.zero_v["sleep"] = 0.0
+        sampler.begin = lambda: None  # the real one sleeps 2 conversions; the sim needs no restart
         shown = []
-        ctrl = jog_server.JogController(motor, sampler, clock=clock, show=shown.append)
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL)) if pot_every else None
+        ctrl = jog_server.JogController(motor, sampler, clock=clock, show=shown.append, pot=p, pot_every=pot_every)
         ctrl.set_settings(settings)
         self.clock, self.gpio, self.adc, self.shown = clock, gpio, adc, shown
         return ctrl
@@ -481,6 +504,50 @@ class TestJog(unittest.TestCase):
         self.assertNotIn("https://", html)
 
 
+class TestPot(unittest.TestCase):
+    def test_scale_zero_and_flip(self):
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL))
+        self.assertEqual(p.update(1.0), 0.0)  # first reading is 0 deg until zeroed
+        self.assertAlmostEqual(p.update(1.916), 0.916 * 98.3, places=6)  # ~90 deg
+        p.zero_here()
+        self.assertEqual(p.angle, 0.0)
+        self.assertAlmostEqual(p.update(1.0), -0.916 * 98.3, places=6)
+        p.flip()
+        self.assertAlmostEqual(p.update(1.0), 0.916 * 98.3, places=6)
+
+    def test_unwraps_across_the_gap(self):
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=3.0))
+        p.update(3.0)
+        a = p.update(0.1)  # 3.35 -> 0 jump: kept counting forward, not a full turn back
+        self.assertGreater(a, 0)
+        self.assertAlmostEqual(a, (0.1 + 360 / 98.3 - 3.0) * 98.3, places=6)
+        self.assertAlmostEqual(p.update(3.0), 0.0, places=6)  # and back again
+
+    def test_cal_persists(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "pot_cal.json")
+            p = pot.PotAngle(pot.load_cal(path), path=path)
+            p.update(2.0)
+            p.zero_here()
+            p.flip()
+            cal = pot.load_cal(path)
+            self.assertEqual((cal["zero_v"], cal["sign"], cal["deg_per_v"]), (2.0, -1, 98.3))
+
+    def test_controller_reads_pot_and_tracks_angle(self):
+        t = TestJog()
+        ctrl = t._ctrl(pot_every=10)
+        ctrl.request("fwd")
+        t._run_for(ctrl, 2.0)
+        rows = list(ctrl.buf)
+        reads = [r for r in rows if r["pot_v"] is not None]
+        self.assertAlmostEqual(len(reads) / len(rows), 0.1, delta=0.01)
+        driven = [r for r in rows if r["state"] == "fwd" and r["angle"] is not None]
+        # sim pot turns 0.5 V/s forward -> ~49 deg/s
+        dps = (driven[-1]["angle"] - driven[0]["angle"]) / (driven[-1]["t_s"] - driven[0]["t_s"])
+        self.assertAlmostEqual(dps, 0.5 * 98.3, delta=3)
+        self.assertEqual(ctrl.status()["pot_errors"], 0)
+
+
 class TestBenchRuns(unittest.TestCase):
     MOTOR, COND = "260:1 test motor", "Free spinning"
 
@@ -501,8 +568,9 @@ class TestBenchRuns(unittest.TestCase):
         ctrl = t._ctrl()
         return t, ctrl
 
-    def _run(self, stroke_s=1.0, cycles=3, motor=None, stop_after=None, k=0):
-        t, ctrl = self._ctrl()
+    def _run(self, stroke_s=1.0, cycles=3, motor=None, stop_after=None, k=0, pot_every=0):
+        t = TestJog()
+        ctrl = t._ctrl(pot_every=pot_every)
         meta = {"motor": motor or self.MOTOR, "condition": self.COND, "stroke_s": stroke_s, "cycles": cycles,
                 "pause_s": 0.5, "notes": "", "settings": ctrl.status()["settings"]}
         import datetime as dt
@@ -562,6 +630,21 @@ class TestBenchRuns(unittest.TestCase):
         self.assertTrue(listed[b.meta["id"]]["excluded"])
         self.assertFalse(listed[a.meta["id"]]["excluded"])
         self.assertEqual(list(listed)[0], c.meta["id"])  # newest first
+
+    def test_strokes_get_sweep_and_speed(self):
+        run, _ = self._run(stroke_s=2.0, cycles=2, pot_every=10)
+        strokes = bench_runs.load_run(self.runs, run.meta["id"])["summary"]["strokes"]
+        fwd = [s for s in strokes if s["dir"] == "fwd"]
+        rev = [s for s in strokes if s["dir"] == "rev"]
+        for s in fwd:
+            self.assertAlmostEqual(s["sweep_deg"], 2.0 * 0.5 * 98.3, delta=5)  # 2 s at ~49 deg/s
+            self.assertAlmostEqual(s["speed_dps"], 0.5 * 98.3, delta=3)
+        for s in rev:
+            self.assertAlmostEqual(s["sweep_deg"], -2.0 * 0.5 * 98.3, delta=5)
+        row = next(r for r in bench_runs.group_stats(self.runs) if r["dir"] == "fwd")
+        self.assertEqual(row["sweep_deg"]["n"], 2)
+        tr = bench_runs.trace(self.runs, run.meta["id"])
+        self.assertTrue(any(g is not None for g in tr["g"]))
 
     def test_trace_keeps_spikes(self):
         run, _ = self._run(cycles=1)
