@@ -45,9 +45,23 @@ class FakeGpio:
 class SimMotorADC:
     """Continuous-mode ADS1115 whose AIN0 follows the motor state: 60 mA running, `stall_a` while jammed."""
 
-    def __init__(self, gpio, clock, fsr=0.256, run_a=0.060, stall_a=0.30, jam=()):
+    def __init__(self, gpio, clock, fsr=0.256, run_a=0.060, stall_a=0.30, jam=(), offset_v=(0.0, 0.0)):
         self.gpio, self.clock, self.fsr = gpio, clock, fsr
         self.run_a, self.stall_a, self.jam = run_a, stall_a, set(jam)
+        # No-load VISEN when awake, (fwd, rev): cam02 read ~4.4 mV, but ~5.5 mV in reverse and in a brake entered
+        # straight from reverse; coast or forward resets it. Track that from the GPIO writes.
+        self.offset_v = offset_v
+        self.rev_latched = False
+        write = gpio.output
+
+        def output(pin, level):
+            write(pin, level)
+            a, b = gpio.levels.get(hw.GPIO_IN1, 0), gpio.levels.get(hw.GPIO_IN2, 0)
+            if (a, b) == (0, 1):
+                self.rev_latched = True
+            elif (a, b) in ((0, 0), (1, 0)):
+                self.rev_latched = False
+        gpio.output = output
         self.wipe_phase = None
 
     def start_continuous(self, channel, fsr=None):
@@ -63,13 +77,15 @@ class SimMotorADC:
             driving = a != b
             amps = (self.stall_a if self.wipe_phase in self.jam else self.run_a) if driving else 0.0
         visen = amps * wa.ISET_GAIN_A_PER_A * 2000.0
+        if g.get(hw.GPIO_NSLEEP_HB):
+            visen += self.offset_v[1 if self.rev_latched else 0]
         raw = int(round(visen / self.fsr * 32768))
         return min(raw, 0x7FFF) & 0xFFFF
 
 
 def args(**kw):
     base = dict(wipes=3, fwd_s=0.5, rev_s=0.5, brake_s=0.1, pause_s=0.1, stall_amps=0.25, stall_ms=150.0,
-                max_stalls=1, rate=860, fsr=0.256, r_iset=2000.0)
+                max_stalls=1, rate=860, fsr=0.256, r_iset=2000.0, zero="auto")
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -146,10 +162,10 @@ class TestEnergy(unittest.TestCase):
 
 
 class TestRunWipes(unittest.TestCase):
-    def _run(self, jam=(), **kw):
+    def _run(self, jam=(), offset_v=(0.0, 0.0), **kw):
         clock, gpio = FakeClock(), FakeGpio()
         motor = hw.Motor(gpio)
-        adc = SimMotorADC(gpio, clock, jam=jam)
+        adc = SimMotorADC(gpio, clock, jam=jam, offset_v=offset_v)
         state = {}
         sampler = TrackingSampler(adc, state)
         orig_forward, orig_reverse = motor.forward, motor.reverse
@@ -166,7 +182,7 @@ class TestRunWipes(unittest.TestCase):
 
         motor.forward, motor.reverse = fwd, rev
         a = args(**kw)
-        samples, strokes = wipe_logger.run_wipes(motor, sampler, a, clock=clock, sleep=clock.sleep)
+        samples, strokes, self.zeros = wipe_logger.run_wipes(motor, sampler, a, clock=clock, sleep=clock.sleep)
         return samples, strokes, gpio, a
 
     def test_clean_run(self):
@@ -210,6 +226,68 @@ class TestRunWipes(unittest.TestCase):
         self.assertEqual(len(back), len(samples))
         self.assertAlmostEqual(back[10]["amps"], samples[10]["amps"])
         self.assertIsNone(back[0]["vbus_v"])
+
+
+class TestZero(unittest.TestCase):
+    OFFSET = (0.00437, 0.00548)  # cam02, J3 open, 11/12
+
+    def _stroke_median(self, samples, phase):
+        return sorted(s["amps"] for s in samples if s["phase"] == phase)[len([s for s in samples
+                                                                              if s["phase"] == phase]) // 2]
+
+    def test_zero_removes_driver_offset(self):
+        t = TestRunWipes()
+        samples, strokes, _, _ = t._run(offset_v=self.OFFSET)
+        self.assertAlmostEqual(t.zeros["start"]["fwd"], self.OFFSET[0], delta=1e-5)
+        self.assertAlmostEqual(t.zeros["start"]["rev"], self.OFFSET[1], delta=1e-5)
+        self.assertIsNotNone(t.zeros["end"])
+        for phase in ("fwd", "rev"):
+            self.assertAlmostEqual(self._stroke_median(samples, phase), 0.060, delta=0.0005)
+        # brake and pause carry no current in the sim, so after the zero they read ~0 whichever stroke came first
+        for phase in ("brake", "pause"):
+            self.assertLess(max(abs(s["amps"]) for s in samples if s["phase"] == phase), 0.0005)
+        e = wa.summarize(samples, strokes, 5.0, 0.05)["energy_per_wipe_j"]
+        self.assertAlmostEqual(e["median"], 0.30, delta=0.01)
+
+    def test_zero_off_keeps_offset(self):
+        samples, _, _, _ = TestRunWipes()._run(offset_v=self.OFFSET, zero="off")
+        self.assertAlmostEqual(self._stroke_median(samples, "fwd"), 0.060 + self.OFFSET[0] / 0.2, delta=0.0005)
+        self.assertAlmostEqual(self._stroke_median(samples, "rev"), 0.060 + self.OFFSET[1] / 0.2, delta=0.0005)
+
+    def test_zero_rejects_current_flowing(self):
+        class Spinning:
+            def take(self):
+                return {"visen_v": 0.020}  # 100 mA: the motor is still moving
+        motor = hw.Motor(FakeGpio())
+        with self.assertRaises(wipe_logger.ZeroError):
+            wipe_logger.measure_zeros(motor, Spinning(), 0.001, lambda s: None)
+
+
+class TestI2CRetry(unittest.TestCase):
+    def _dev(self):
+        dev = hw.I2CDevice.__new__(hw.I2CDevice)  # no /dev/i2c-1 on the desk
+        dev.retries = 0
+        return dev
+
+    def test_one_error_is_retried(self):
+        dev, calls = self._dev(), []
+
+        def flaky():
+            calls.append(1)
+            if len(calls) == 1:
+                raise OSError(121, "Remote I/O error")
+            return b"ok"
+        self.assertEqual(dev._again(flaky), b"ok")
+        self.assertEqual(dev.retries, 1)
+
+    def test_second_error_raises(self):
+        dev = self._dev()
+
+        def dead():
+            raise OSError(5, "Input/output error")
+        with self.assertRaises(OSError):
+            dev._again(dead)
+        self.assertEqual(dev.retries, 1)
 
 
 class TestVbusSampler(unittest.TestCase):

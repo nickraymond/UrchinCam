@@ -77,6 +77,22 @@ What that means on this board:
 
 Default: **±0.256 V at 860 SPS**, single-ended AIN0 to GND. The logger flags any sample at full scale as clipped.
 
+## Measured on cam02: VISEN reads a no-load offset when the bridge is awake
+
+Bench, 11/12, J3 open (no load), Pi USB power, ±0.256 V. Five state sequences plus three hold runs agreed:
+
+| Driver state | VISEN, no load | Looks like |
+|---|---|---|
+| Asleep (nSLEEP_HB low) | 0.02–0.21 mV | ~0 mA |
+| Coast, forward, brake entered from coast or forward | 4.36–4.41 mV | 22 mA |
+| Reverse, brake entered straight from reverse | 5.44–5.49 mV | 27 mA |
+
+Coast resets it to the forward value. That is 40–70 % of the 40 mA no-load current above, so `wipe_logger.py`
+measures two zeros before the first wipe (and again after the last, for drift) and subtracts them from `amps`:
+"fwd" in coast, and "rev" in a brake entered from a 2 ms reverse pulse. `visen_v` in samples.csv stays raw.
+After the fix, the same J3-open run read 0.12–0.16 mA forward and −0.04 mA reverse (stroke medians).
+Not yet known: whether the offset moves with temperature or from board to board (n = 1 board).
+
 ## Optional rework (Nick's call, not assumed)
 
 Changing R3 from 2 kΩ to **10 kΩ 1 % (0402)** gives 1.0 V/A, a 0.5 A typ hardware limit, and VISEN > 0.1 V from

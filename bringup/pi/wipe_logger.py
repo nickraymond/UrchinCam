@@ -14,6 +14,7 @@ import datetime
 import json
 import os
 import socket
+import statistics
 import subprocess
 import sys
 import time
@@ -24,16 +25,26 @@ from urchin_hw import raw_to_volts
 DATA_ROOT = os.path.expanduser("~/NereusData/UrchinCam")
 MAX_STROKE_S = 10.0
 VBUS_FSR = 4.096
+# With the MP6550 awake and no load, VISEN reads a few mV (cam02, J3 open, 11/12, 5 sequences): ~4.4 mV in
+# coast, forward, and brake entered from forward or coast; ~5.5 mV in reverse and in brake entered straight from
+# reverse; ~0.2 mV asleep. Coast resets it to the forward value. So there are two zeros: "fwd" and "rev".
+ZERO_MAX_V = 0.015  # a zero above 15 mV (75 mA) means current is flowing: the motor is moving
+REV_PULSE_S = 0.002  # reverse pulse before the brake that reads the "rev" zero; far too short to move a gearmotor
 
 
 class Sampler:
-    """Reads VISEN (AIN0) and, if a divider is fitted, +5V on AIN1."""
+    """Reads VISEN (AIN0) and, if a divider is fitted, +5V on AIN1.
+
+    `visen_v` is the raw reading; `amps` subtracts the no-load zero named by `zero_key` ("fwd" or "rev").
+    """
 
     def __init__(self, adc, fsr, r_iset, vbus_divider=None, vbus_every=4):
         self.adc, self.fsr, self.r_iset = adc, fsr, r_iset
         self.vbus_divider, self.vbus_every = vbus_divider, vbus_every
         self.k = 0
         self.vbus = None
+        self.zero_v = {"fwd": 0.0, "rev": 0.0}
+        self.zero_key = "fwd"
 
     def begin(self):
         if self.vbus_divider is None:
@@ -51,24 +62,81 @@ class Sampler:
             raw, _ = self.adc.single_shot(0, self.fsr)
             self.k += 1
         visen = raw_to_volts(raw, self.fsr)
+        zero = self.zero_v[self.zero_key]
         return {
             "raw": raw,
             "visen_v": visen,
-            "amps": wa.visen_to_amps(visen, self.r_iset),
+            "amps": wa.visen_to_amps(visen - zero, self.r_iset),
             "vbus_v": self.vbus,
             "vbus_fresh": fresh,
             "clipped": raw == 0x7FFF,
         }
 
 
+class ZeroError(RuntimeError):
+    pass
+
+
+def measure_zeros(motor, sampler, period, sleep, settle_s=0.1, n=64):
+    """VISEN with the driver awake and the motor at rest, so no current flows.
+
+    "fwd": in coast. "rev": in brake entered straight from a 2 ms reverse pulse, which holds the reverse offset.
+    """
+
+    def rev_then_brake():
+        motor.reverse()
+        sleep(REV_PULSE_S)
+        motor.brake()
+
+    out = {}
+    for key, set_state in (("fwd", motor.coast), ("rev", rev_then_brake)):
+        set_state()
+        sleep(settle_s)
+        vals = []
+        for _ in range(n):
+            vals.append(sampler.take()["visen_v"])
+            sleep(period)
+        out[key] = statistics.median(vals)
+    motor.coast()
+    bad = {k: v for k, v in out.items() if abs(v) > ZERO_MAX_V}
+    if bad:
+        raise ZeroError("VISEN zero out of range (" + ", ".join(f"{k} {v * 1000:.1f} mV" for k, v in bad.items())
+                        + "): is the motor still moving? Use --zero off to skip.")
+    return out
+
+
 def run_wipes(motor, sampler, args, clock=time.monotonic, sleep=time.sleep):
-    """Returns (samples, strokes_meta). Leaves the motor braked then coasting; the caller puts it to sleep."""
+    """Returns (samples, strokes_meta, zeros). Leaves the motor coasting; the caller puts it to sleep.
+
+    With --zero auto (default) the no-load VISEN zero is measured before the first wipe and subtracted from
+    `amps`; it is measured again after the last one so the summary shows any drift.
+    """
     period = 1.0 / args.rate
     samples, strokes = [], []
     t0 = clock()
+    zeros = {"start": None, "end": None}
+
+    sampler.begin()
+    motor.wake()
+    if args.zero == "auto":
+        zeros["start"] = measure_zeros(motor, sampler, period, sleep)
+        sampler.zero_v = dict(zeros["start"])
+    _drive(motor, sampler, args, clock, sleep, period, t0, samples, strokes)
+    if args.zero == "auto":
+        sleep(args.pause_s)
+        try:
+            zeros["end"] = measure_zeros(motor, sampler, period, sleep)
+        except ZeroError as e:  # never lose a finished run over the drift check
+            print(f"end zero not recorded: {e}", file=sys.stderr)
+    return samples, strokes, zeros
+
+
+def _drive(motor, sampler, args, clock, sleep, period, t0, samples, strokes):
     stalls = 0
 
     def log_for(phase, wipe, seconds, detector=None):
+        if phase != "brake":  # brake keeps the zero of the stroke before it
+            sampler.zero_key = "rev" if phase == "rev" else "fwd"
         start = clock()
         next_t = start
         while clock() - start < seconds:
@@ -85,8 +153,6 @@ def run_wipes(motor, sampler, args, clock=time.monotonic, sleep=time.sleep):
                 next_t = clock()  # fell behind; don't try to catch up with a burst
         return None
 
-    sampler.begin()
-    motor.wake()
     for wipe in range(1, args.wipes + 1):
         for phase, seconds in (("fwd", args.fwd_s), ("rev", args.rev_s)):
             if seconds <= 0:
@@ -104,9 +170,8 @@ def run_wipes(motor, sampler, args, clock=time.monotonic, sleep=time.sleep):
                 print(f"wipe {wipe} {phase}: stall cut-off at {stall_t:.3f} s", file=sys.stderr)
                 if stalls >= args.max_stalls:
                     print(f"stopping: {stalls} stall(s) reached --max-stalls", file=sys.stderr)
-                    return samples, strokes
+                    return
                 break  # skip the rest of this wipe
-    return samples, strokes
 
 
 def make_run_dir(run):
@@ -163,6 +228,8 @@ def parse_args(argv=None):
     p.add_argument("--vbus-nominal", type=float, default=5.0, help="used for energy when there's no divider")
     p.add_argument("--noload-amps", type=float, default=None, help="free-run current (test card 7.4)")
     p.add_argument("--stall-ref-amps", type=float, default=None, help="stall current from a stall run (9.2)")
+    p.add_argument("--zero", choices=["auto", "off"], default="auto",
+                   help="auto: measure and subtract VISEN's no-load zero (coast and brake, motor at rest)")
     a = p.parse_args(argv)
     for name in ("fwd_s", "rev_s"):
         if not 0 <= getattr(a, name) <= MAX_STROKE_S:
@@ -181,9 +248,13 @@ def main(argv=None):
     dev = hw.I2CDevice(hw.ADS1115_ADDR)
     adc = hw.ADS1115(dev, fsr=args.fsr, rate=args.rate)
     sampler = Sampler(adc, args.fsr, args.r_iset, args.vbus_divider)
-    samples, strokes = [], []
+    samples, strokes, zeros = [], [], {}
     try:
-        samples, strokes = run_wipes(motor, sampler, args)
+        samples, strokes, zeros = run_wipes(motor, sampler, args)
+    except ZeroError as e:
+        print(f"stopped before the first wipe: {e}", file=sys.stderr)
+        os.rmdir(run_dir)  # nothing was logged
+        sys.exit(2)
     finally:
         motor.sleep()
         try:
@@ -196,11 +267,15 @@ def main(argv=None):
     achieved = (len(samples) - 1) / span if span else None
     summary = wa.summarize(samples, strokes, args.vbus_nominal, args.inrush_ms / 1000.0,
                            args.noload_amps, args.stall_ref_amps)
+    summary["visen_zero_mv"] = {when: ({k: round(v * 1000, 3) for k, v in z.items()} if z else None)
+                                for when, z in zeros.items()} if args.zero == "auto" else "off"
+    summary["i2c_retries"] = dev.retries
     summary = write_outputs(run_dir, samples, summary, args, achieved, started)
     e = summary["energy_per_wipe_j"]
     print(f"run folder: {run_dir}")
     print(f"samples: {len(samples)} at {achieved or 0:.0f} S/s; vbus {summary['vbus']}; "
-          f"clipped {summary['clipped_samples']}")
+          f"clipped {summary['clipped_samples']}; I2C retries {dev.retries}")
+    print(f"VISEN zero (mV): {summary['visen_zero_mv']}")
     if e:
         print(f"energy per wipe: median {e['median']:.3f} J (min {e['min']:.3f}, max {e['max']:.3f}, n={e['n']})")
     if summary["stall_amps"]:

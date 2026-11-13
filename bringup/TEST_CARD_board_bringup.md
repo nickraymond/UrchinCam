@@ -118,7 +118,7 @@ VISEN. Nick reads volts across J3 (red on J3.1, black on J3.3).
 | 6.2 | Forward (1, 0) | +4.7 V to +5.1 V | |
 | 6.3 | Reverse (0, 1) | −4.7 V to −5.1 V | |
 | 6.4 | Brake (1, 1) | ≈ 0 V | |
-| 6.5 | VISEN in all states | < 2 mV (no load current) | |
+| 6.5 | VISEN in all states | asleep < 2 mV; awake: record the no-load offset per state (cam02 11/12: ~4.4 mV, ~5.5 mV in reverse; see VISEN_SCALE.md) | |
 
 ## Stage 7: motor on J3, free shaft (no seal), DMM in series
 

@@ -57,18 +57,34 @@ def raw_to_volts(raw, fsr):
     return raw * fsr / 32768.0
 
 
+I2C_RETRY_DELAY_S = 0.002
+
+
 class I2CDevice:
-    """One 7-bit address on /dev/i2c-N, via plain read()/write()."""
+    """One 7-bit address on /dev/i2c-N, via plain read()/write().
+
+    Each transfer is retried once on an I/O error: on cam02 (11/12) two isolated errors (Errno 121 on a config
+    write, Errno 5 on a read) each succeeded on the retry. `retries` counts them; a second failure raises.
+    """
 
     def __init__(self, addr, bus=I2C_BUS):
         self.fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
         fcntl.ioctl(self.fd, I2C_SLAVE, addr)
+        self.retries = 0
+
+    def _again(self, transfer):
+        try:
+            return transfer()
+        except OSError:
+            self.retries += 1
+            time.sleep(I2C_RETRY_DELAY_S)
+            return transfer()
 
     def write(self, data):
-        os.write(self.fd, bytes(data))
+        self._again(lambda: os.write(self.fd, bytes(data)))
 
     def read(self, n):
-        return os.read(self.fd, n)
+        return self._again(lambda: os.read(self.fd, n))
 
     def close(self):
         os.close(self.fd)
