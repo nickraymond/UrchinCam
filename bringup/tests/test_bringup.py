@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pi"))
 
+import bench_runs  # noqa: E402
 import board_check  # noqa: E402
 import jog_server  # noqa: E402
 import plot_run  # noqa: E402
@@ -471,6 +472,130 @@ class TestJog(unittest.TestCase):
             html = f.read()
         self.assertNotIn("http://", html)
         self.assertNotIn("https://", html)
+
+
+class TestBenchRuns(unittest.TestCase):
+    MOTOR, COND = "260:1 test motor", "Free spinning"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        self.opts = os.path.join(self.root, "opts.json")
+        with open(self.opts, "w") as f:
+            json.dump({"motors": [self.MOTOR, "1000:1 test motor"], "conditions": [self.COND, "On shaft"]}, f)
+        self.runs = os.path.join(self.root, "runs")
+        os.makedirs(self.runs)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _ctrl(self):
+        t = TestJog()
+        ctrl = t._ctrl()
+        return t, ctrl
+
+    def _run(self, stroke_s=1.0, cycles=3, motor=None, stop_after=None, k=0):
+        t, ctrl = self._ctrl()
+        meta = {"motor": motor or self.MOTOR, "condition": self.COND, "stroke_s": stroke_s, "cycles": cycles,
+                "pause_s": 0.5, "notes": "", "settings": ctrl.status()["settings"]}
+        import datetime as dt
+        run = bench_runs.RunLogger(meta, root=self.runs, threaded=False,
+                                   now_utc=dt.datetime(2026, 11, 13, 19, 0, k, tzinfo=dt.timezone.utc))
+        ctrl.request("cycle", stroke_s, cycles, 0.5, run=run)
+        if stop_after is None:
+            t._run_for(ctrl, cycles * (2 * stroke_s + 1.0) + 1.0)
+        else:
+            t._run_for(ctrl, stop_after)
+            ctrl.request("stop")
+            t._run_for(ctrl, 0.5)
+        self.assertIsNone(ctrl.run)
+        return run, ctrl
+
+    def test_complete_run_logs_every_stroke(self):
+        run, ctrl = self._run()
+        self.assertEqual(ctrl.state, "asleep")
+        loaded = bench_runs.load_run(self.runs, run.meta["id"])
+        self.assertEqual(loaded["meta"]["status"], "complete")
+        strokes = loaded["summary"]["strokes"]
+        self.assertEqual([(s["cycle"], s["dir"]) for s in strokes],
+                         [(c, d) for c in (1, 2, 3) for d in ("fwd", "rev")])
+        self.assertTrue(all(s["complete"] for s in strokes))
+        self.assertAlmostEqual(strokes[0]["median_ma"], 60.0, delta=1.0)  # SimMotorADC runs at 60 mA
+        self.assertEqual(len(loaded["summary"]["cycles"]), 3)
+        # 60 mA x 5 V x 2 s per cycle = 0.6 J
+        self.assertAlmostEqual(loaded["summary"]["headline"]["cycle_energy_j"]["median"], 0.6, delta=0.02)
+
+    def test_stopped_run_keeps_only_complete_strokes(self):
+        run, ctrl = self._run(stroke_s=1.0, cycles=5, stop_after=3.2)  # stopped in cycle 2
+        meta = bench_runs.load_run(self.runs, run.meta["id"])["meta"]
+        self.assertEqual(meta["status"], "stopped")
+        self.assertEqual(meta["cycles_done"], 1)
+        self.assertEqual(meta["ended_reason"], "stop pressed")
+        rows = bench_runs.group_stats(self.runs)
+        fwd = next(r for r in rows if r["dir"] == "fwd")
+        self.assertEqual((fwd["runs"], fwd["stopped_runs"]), (1, 1))
+        self.assertEqual(fwd["n"], 1)  # cycle 2's forward stroke was cut short at 3.2 s
+        self.assertEqual(next(r for r in rows if r["dir"] == "rev")["n"], 1)
+
+    def test_group_stats_and_include_checkbox(self):
+        a, _ = self._run(cycles=2, k=1)
+        b, _ = self._run(cycles=2, k=2)
+        c, _ = self._run(cycles=2, motor="1000:1 test motor", k=3)
+        rows = bench_runs.group_stats(self.runs)
+        mine = [r for r in rows if r["motor"] == self.MOTOR]
+        self.assertEqual({r["dir"] for r in mine}, {"fwd", "rev", "cycle"})
+        fwd = next(r for r in mine if r["dir"] == "fwd")
+        self.assertEqual((fwd["runs"], fwd["n"]), (2, 4))
+        for k in ("median", "mean", "max", "min"):
+            self.assertAlmostEqual(fwd["median_ma"][k], 60.0, delta=1.0)
+        bench_runs.set_excluded(self.runs, b.meta["id"], True)  # untick run b
+        fwd = next(r for r in bench_runs.group_stats(self.runs) if r["motor"] == self.MOTOR and r["dir"] == "fwd")
+        self.assertEqual((fwd["runs"], fwd["n"]), (1, 2))
+        listed = {r["id"]: r for r in bench_runs.list_runs(self.runs)}
+        self.assertTrue(listed[b.meta["id"]]["excluded"])
+        self.assertFalse(listed[a.meta["id"]]["excluded"])
+        self.assertEqual(list(listed)[0], c.meta["id"])  # newest first
+
+    def test_trace_keeps_spikes(self):
+        run, _ = self._run(cycles=1)
+        tr = bench_runs.trace(self.runs, run.meta["id"], max_points=200)
+        self.assertLessEqual(len(tr["t"]), 220)
+        self.assertEqual(tr["t"], sorted(tr["t"]))
+        self.assertIn("f", tr["s"])
+        self.assertIn("r", tr["s"])
+
+    def test_run_id_is_checked(self):
+        for bad in ("../etc", "2026-11-13T190000Z_x/../../y", ""):
+            with self.assertRaises(ValueError):
+                bench_runs.run_dir(self.runs, bad)
+        with self.assertRaises(KeyError):
+            bench_runs.run_dir(self.runs, "2026-11-13T190000Z_nope")
+
+    def test_start_run_checks_the_pick(self):
+        t, ctrl = self._ctrl()
+        extra = {"fsr": 1.024, "sha": "abc1234"}
+        with self.assertRaises(ValueError):
+            jog_server.start_run(ctrl, {"motor": "bogus", "condition": self.COND, "stroke_s": 1, "cycles": 1},
+                                 extra, self.runs, self.opts)
+        rid = jog_server.start_run(ctrl, {"motor": self.MOTOR, "condition": self.COND, "stroke_s": 2,
+                                          "cycles": 3, "notes": "x"}, extra, self.runs, self.opts)
+        self.assertEqual(ctrl.cycle["n"], 3)
+        with self.assertRaises(ValueError):  # one run at a time
+            jog_server.start_run(ctrl, {"motor": self.MOTOR, "condition": self.COND, "stroke_s": 2, "cycles": 1},
+                                 extra, self.runs, self.opts)
+        self.assertEqual(len(os.listdir(self.runs)), 1)  # the refused start left no folder
+        meta = bench_runs.load_run(self.runs, rid)["meta"]
+        self.assertEqual((meta["status"], meta["source_sha"], meta["mode"]), ("running", "abc1234", "time"))
+        run = ctrl.run
+        ctrl.request("stop")
+        t._run_for(ctrl, 0.3)
+        self.assertTrue(run.wait(5))  # the worker wrote summary.json before the temp dir goes
+        self.assertEqual(bench_runs.load_run(self.runs, rid)["meta"]["status"], "stopped")
+
+    def test_options_file_ships_valid(self):
+        opts = bench_runs.load_options()
+        self.assertEqual(len(opts["motors"]), 2)
+        self.assertEqual(len(opts["conditions"]), 3)
 
 
 class TestI2C(unittest.TestCase):
