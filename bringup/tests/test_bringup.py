@@ -430,6 +430,34 @@ class TestJog(unittest.TestCase):
         self.assertTrue(any("current sensor not answering" in e["text"] for e in ctrl.events))
         self.assertEqual(ctrl.want, "stop")
 
+    def test_wipe_cycle(self):
+        ctrl = self._ctrl(max_on_s=1.0)  # a cycle stroke may run past max_on_s
+        ctrl.request("cycle", 2.0)
+        self._run_for(ctrl, 5.0)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertIsNone(ctrl.cycle)
+        rows = list(ctrl.buf)
+        spans = {}
+        for r in rows:
+            if r["state"] in ("fwd", "rev"):
+                a, _ = spans.get(r["state"], (r["t_s"], None))
+                spans[r["state"]] = (a, r["t_s"])
+        for d in ("fwd", "rev"):
+            self.assertAlmostEqual(spans[d][1] - spans[d][0], 2.0, delta=0.01)
+        self.assertLess(spans["fwd"][1], spans["rev"][0])  # forward first, then reverse
+        self.assertIn("wipe cycle done", ctrl.events[-1]["text"])
+
+    def test_wipe_cycle_stop_and_guard(self):
+        ctrl = self._ctrl()
+        ctrl.request("cycle", 5.0)
+        self._run_for(ctrl, 1.0)
+        with self.assertRaises(ValueError):
+            ctrl.request("cycle", 5.0)  # not while the motor runs
+        ctrl.request("stop")
+        self._run_for(ctrl, 0.5)
+        self.assertEqual((ctrl.state, ctrl.cycle), ("asleep", None))
+        self.assertEqual(ctrl.want, "stop")
+
     def test_settings_clamped(self):
         ctrl = self._ctrl()
         s = ctrl.set_settings({"stall_amps": 99, "max_on_s": 0, "bogus": 1})

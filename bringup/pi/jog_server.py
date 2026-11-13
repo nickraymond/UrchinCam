@@ -7,6 +7,7 @@ Run on the Pi with the expander board fitted, then tunnel from the Mac and open 
     open http://localhost:8765
 
 Forward / Reverse: hold to run (stops when released), or a quick click to latch on (click again or Stop).
+Wipe cycle: forward for the set time, brake, then reverse for the same time, then stop.
 The motor stops on its own when the stall cut-off trips, after the max run time, or when the page stops sending
 heartbeats (tab closed, hidden or the tunnel dropped). Every drive is logged to
 ~/NereusData/UrchinCam/<YYYY-MM-DD>_jog_<HHMMSS>/samples.csv.
@@ -36,6 +37,7 @@ LIMITS = {  # setting: (default, min, max)
     "stall_ms": (250.0, 20.0, 2000.0),
     "max_on_s": (10.0, 0.5, 60.0),
 }
+CYCLE_S = (0.5, 30.0)  # wipe cycle stroke time limits; the stroke time replaces max_on_s during a cycle
 WATCHDOG_S = 1.5  # no heartbeat for this long while driving -> stop
 SENSOR_FAIL_N = 20  # consecutive failed ADC reads (~25 ms) while driving -> stop: the stall cut-off is blind
 
@@ -69,13 +71,22 @@ class JogController:
         self.err_run = 0
         self.last_tick = clock()
         self.fault = None  # set by the control thread if it dies; the page shows it
+        self.cycle = None  # {"s": stroke seconds, "stage": "fwd" | "rev"} while a wipe cycle runs
 
     # --- HTTP side ---
-    def request(self, action):
-        if action not in ("fwd", "rev", "stop"):
+    def request(self, action, seconds=None):
+        if action not in ("fwd", "rev", "stop", "cycle"):
             raise ValueError(action)
         with self.lock:
-            self.want = action
+            if action == "cycle":
+                if self.state != "asleep":
+                    raise ValueError("stop the motor before a wipe cycle")
+                s = min(CYCLE_S[1], max(CYCLE_S[0], float(seconds)))
+                self.cycle = {"s": s, "stage": "fwd"}
+                self.want = "fwd"
+            else:  # Stop, or a manual direction, ends a cycle
+                self.cycle = None
+                self.want = action
             self.last_hb = self.clock()
 
     def heartbeat(self):
@@ -97,6 +108,7 @@ class JogController:
     def _stop(self, now, why, keep_want=False):
         if not keep_want:  # a safety stop needs a new press to start again
             self.want = "stop"
+            self.cycle = None
         if self.state in ("fwd", "rev"):
             self._event(now, f"{self.state} stopped: {why} (peak {self.peak * 1000:.0f} mA)")
             self.motor.brake()
@@ -122,7 +134,13 @@ class JogController:
             if self.state in ("fwd", "rev"):
                 if now - self.last_hb > WATCHDOG_S:
                     self._stop(now, "lost contact with the page")
-                elif now - self.drive_start > self.settings["max_on_s"]:
+                elif self.cycle and now - self.drive_start >= self.cycle["s"]:
+                    if self.cycle["stage"] == "fwd":
+                        self.cycle["stage"] = self.want = "rev"
+                        self._stop(now, f"wipe cycle forward {self.cycle['s']:g} s done", keep_want=True)
+                    else:
+                        self._stop(now, f"wipe cycle done ({self.cycle['s']:g} s each way)")
+                elif not self.cycle and now - self.drive_start > self.settings["max_on_s"]:
                     self._stop(now, f"max run time {self.settings['max_on_s']:g} s")
                 elif self.want != self.state:  # stop pressed, or the other direction: brake first
                     self._stop(now, "stop pressed" if self.want == "stop" else "direction change", keep_want=True)
@@ -188,7 +206,8 @@ class JogController:
         with self.lock:
             now = self.clock()
             driving = self.state in ("fwd", "rev")
-            return {"state": self.state, "want": self.want, "run_s": round(now - self.drive_start, 2) if driving else None,
+            return {"state": self.state, "want": self.want, "cycle": dict(self.cycle) if self.cycle else None,
+                    "run_s": round(now - self.drive_start, 2) if driving else None,
                     "peak_a": round(self.peak, 4), "settings": dict(self.settings), "events": list(self.events),
                     "clipped": self.clipped, "i2c_errors": self.i2c_errors, "fault": self.fault,
                     "tick_age_s": round(now - self.last_tick, 3),
@@ -289,7 +308,7 @@ def make_handler(ctrl, extra):
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                 if self.path == "/cmd":
-                    ctrl.request(body["action"])
+                    ctrl.request(body["action"], body.get("seconds"))
                 elif self.path == "/hb":
                     ctrl.heartbeat()
                 elif self.path == "/settings":
@@ -297,7 +316,7 @@ def make_handler(ctrl, extra):
                 else:
                     return self._send(404, '{"error": "not found"}')
                 self._send(200, '{"ok": true}')
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, TypeError) as e:
                 self._send(400, json.dumps({"error": str(e)}))
 
     return Handler
