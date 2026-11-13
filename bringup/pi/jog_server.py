@@ -221,6 +221,10 @@ class JogController:
                 self._event(now, f"I2C back after {self.err_run} failed read(s)")
                 self.err_run = 0
             t = now - self.t0
+            if self.state == "asleep":
+                # The bridge can't conduct asleep, and VISEN then floats: cam02 read ~37-40 mV that drifts for
+                # minutes after boot (11/13). Report 0 A; visen_v and raw keep the real reading.
+                s["amps"] = 0.0
             if s["clipped"]:
                 self.clipped += 1
             if self.state in ("fwd", "rev"):

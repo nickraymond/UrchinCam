@@ -459,6 +459,13 @@ class TestJog(unittest.TestCase):
         self.assertEqual((ctrl.state, ctrl.cycle), ("asleep", None))
         self.assertEqual(ctrl.want, "stop")
 
+    def test_asleep_reads_zero_amps(self):
+        ctrl = self._ctrl()
+        ctrl.sampler.zero_v["sleep"] = 0.040  # a floating VISEN that drifted from the boot-time zero
+        self._run_for(ctrl, 0.1)
+        self.assertTrue(all(r["amps"] == 0.0 for r in ctrl.buf))
+        self.assertEqual(ctrl.buf[-1]["state"], "asleep")
+
     def test_settings_clamped(self):
         ctrl = self._ctrl()
         s = ctrl.set_settings({"stall_amps": 99, "max_on_s": 0, "bogus": 1})
