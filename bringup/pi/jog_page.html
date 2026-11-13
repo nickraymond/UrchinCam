@@ -28,6 +28,10 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 main { max-width: 980px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
 header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 h1 { font-size: 18px; margin: 0 auto 0 0; }
+nav.pages { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+nav.pages a { padding: 6px 14px; font-size: 14px; font-weight: 600; color: var(--ink2); text-decoration: none; background: var(--btn); }
+nav.pages a + a { border-left: 1px solid var(--line); }
+nav.pages a[aria-current="page"] { background: var(--ink); color: var(--panel); }
 .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink2); }
 .pill.ok { color: var(--ok); border-color: currentColor; }
 .pill.bad { color: var(--bad); border-color: currentColor; }
@@ -79,6 +83,7 @@ ul.events li:first-child { border-top: 0; }
 <main>
   <header>
     <h1>Jog bench · wiper motor</h1>
+    <nav class="pages"><a href="/" aria-current="page">Drive</a><a href="/runs">Runs</a></nav>
     <span id="conn" class="pill">connecting…</span>
     <span id="thr" class="pill">power —</span>
   </header>
