@@ -12,6 +12,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pi"))
 
 import board_check  # noqa: E402
+import jog_server  # noqa: E402
 import plot_run  # noqa: E402
 import urchin_hw as hw  # noqa: E402
 import wipe_analysis as wa  # noqa: E402
@@ -322,6 +323,105 @@ class TestArgs(unittest.TestCase):
     def test_defaults(self):
         a = wipe_logger.parse_args(["--run", "x", "--motor", "4791", "--fwd-s", "1", "--rev-s", "1"])
         self.assertEqual((a.fsr, a.rate, a.r_iset, a.stall_amps, a.max_stalls), (0.256, 860, 2000.0, 0.25, 1))
+
+
+class TestJog(unittest.TestCase):
+    def _ctrl(self, **settings):
+        clock, gpio = FakeClock(), FakeGpio()
+        motor = hw.Motor(gpio)
+        adc = SimMotorADC(gpio, clock, fsr=1.024, stall_a=0.80)
+        sampler = wipe_logger.Sampler(adc, 1.024, 2000.0)
+        sampler.zero_v["sleep"] = 0.0
+        shown = []
+        ctrl = jog_server.JogController(motor, sampler, clock=clock, show=shown.append)
+        ctrl.set_settings(settings)
+        self.clock, self.gpio, self.adc, self.shown = clock, gpio, adc, shown
+        return ctrl
+
+    def _run_for(self, ctrl, seconds, hb=True):
+        end = self.clock.t + seconds
+        while self.clock.t < end:
+            ctrl.tick()
+            if hb:
+                ctrl.heartbeat()
+            self.clock.sleep(1 / 860)
+
+    def _bridge(self):
+        g = self.gpio.levels
+        return g.get(hw.GPIO_NSLEEP_HB), g.get(hw.GPIO_IN1), g.get(hw.GPIO_IN2)
+
+    def test_latched_forward_runs_until_stop(self):
+        ctrl = self._ctrl()
+        ctrl.request("fwd")
+        self._run_for(ctrl, 2.0)
+        self.assertEqual(ctrl.state, "fwd")
+        self.assertEqual(self._bridge(), (1, 1, 0))
+        self.assertAlmostEqual(ctrl.buf[-1]["amps"], 0.060, delta=0.002)
+        ctrl.request("stop")
+        self._run_for(ctrl, 0.05)
+        self.assertEqual((ctrl.state, self._bridge()), ("brake", (1, 1, 1)))
+        self._run_for(ctrl, 0.1)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertEqual(self._bridge()[0], 0)
+        self.assertEqual(self.shown[-1], "asleep")
+        self.assertIn("stop pressed", ctrl.events[-1]["text"])
+
+    def test_lost_heartbeat_stops(self):
+        ctrl = self._ctrl()
+        ctrl.request("fwd")
+        self._run_for(ctrl, 1.0)
+        self._run_for(ctrl, jog_server.WATCHDOG_S + 0.3, hb=False)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertIn("lost contact", ctrl.events[-1]["text"])
+        self.assertEqual(ctrl.want, "stop")  # does not restart when heartbeats come back
+        self._run_for(ctrl, 0.5)
+        self.assertEqual(ctrl.state, "asleep")
+
+    def test_stall_cut_off(self):
+        ctrl = self._ctrl(stall_amps=0.5, stall_ms=200)
+        self.adc.jam, self.adc.wipe_phase = {"held"}, "held"
+        ctrl.request("rev")
+        self._run_for(ctrl, 1.0)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertIn("stall cut-off", ctrl.events[-1]["text"])
+        driven = [r for r in ctrl.buf if r["state"] == "rev"]
+        self.assertLess(driven[-1]["t_s"] - driven[0]["t_s"], 0.2 + 0.05)  # test card 9.1 bar
+        self.assertAlmostEqual(ctrl.status()["peak_a"], 0.80, delta=0.005)
+
+    def test_max_run_time(self):
+        ctrl = self._ctrl(max_on_s=1.0)
+        ctrl.request("fwd")
+        self._run_for(ctrl, 1.5)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertIn("max run time", ctrl.events[-1]["text"])
+
+    def test_direction_change_brakes_first(self):
+        ctrl = self._ctrl()
+        ctrl.request("fwd")
+        self._run_for(ctrl, 0.5)
+        ctrl.request("rev")
+        self._run_for(ctrl, 0.5)
+        self.assertEqual(ctrl.state, "rev")
+        rows = list(ctrl.buf)
+        states = [r["state"] for r in rows]
+        first_rev, first_brake = states.index("rev"), states.index("brake")
+        self.assertEqual(states[first_brake - 1], "fwd")
+        self.assertEqual(states[first_rev - 1], "asleep")
+        self.assertGreaterEqual(rows[first_rev]["t_s"] - rows[first_brake]["t_s"], jog_server.BRAKE_S)
+
+    def test_settings_clamped(self):
+        ctrl = self._ctrl()
+        s = ctrl.set_settings({"stall_amps": 99, "max_on_s": 0, "bogus": 1})
+        self.assertEqual((s["stall_amps"], s["max_on_s"]), (4.0, 0.5))
+        self.assertNotIn("bogus", s)
+        with self.assertRaises(ValueError):
+            ctrl.request("spin")
+
+    def test_page_is_self_contained(self):
+        with open(os.path.join(os.path.dirname(jog_server.__file__), "jog_page.html")) as f:
+            html = f.read()
+        self.assertNotIn("http://", html)
+        self.assertNotIn("https://", html)
 
 
 class TestI2C(unittest.TestCase):
