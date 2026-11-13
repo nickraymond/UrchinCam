@@ -37,6 +37,7 @@ LIMITS = {  # setting: (default, min, max)
     "max_on_s": (10.0, 0.5, 60.0),
 }
 WATCHDOG_S = 1.5  # no heartbeat for this long while driving -> stop
+SENSOR_FAIL_N = 20  # consecutive failed ADC reads (~25 ms) while driving -> stop: the stall cut-off is blind
 
 
 class JogController:
@@ -64,6 +65,10 @@ class JogController:
         self.buf = collections.deque(maxlen=int(buf_s * rate))
         self.events = collections.deque(maxlen=8)
         self.clipped = 0
+        self.i2c_errors = 0
+        self.err_run = 0
+        self.last_tick = clock()
+        self.fault = None  # set by the control thread if it dies; the page shows it
 
     # --- HTTP side ---
     def request(self, action):
@@ -132,7 +137,25 @@ class JogController:
                 self.sampler.zero_key = self.state
             elif self.state == "asleep":
                 self.sampler.zero_key = "sleep"
-            s = self.sampler.take()  # brake keeps the zero of the stroke before it
+            self.last_tick = now
+            try:
+                s = self.sampler.take()  # brake keeps the zero of the stroke before it
+            except OSError as e:  # cam02 sees rare I2C errors (11/12, 11/13); skip the sample, don't die
+                self.i2c_errors += 1
+                self.err_run += 1
+                if self.err_run == 1:
+                    self._event(now, f"I2C read failed ({e.strerror or e}); skipping samples")
+                if self.err_run == SENSOR_FAIL_N and self.state in ("fwd", "rev"):
+                    self._stop(now, f"current sensor not answering ({SENSOR_FAIL_N} reads)")
+                if self.err_run % SENSOR_FAIL_N == 0:
+                    try:
+                        self.sampler.begin()  # restart continuous mode in case the ADC lost its setup
+                    except OSError:
+                        pass
+                return None
+            if self.err_run:
+                self._event(now, f"I2C back after {self.err_run} failed read(s)")
+                self.err_run = 0
             t = now - self.t0
             if s["clipped"]:
                 self.clipped += 1
@@ -167,7 +190,8 @@ class JogController:
             driving = self.state in ("fwd", "rev")
             return {"state": self.state, "want": self.want, "run_s": round(now - self.drive_start, 2) if driving else None,
                     "peak_a": round(self.peak, 4), "settings": dict(self.settings), "events": list(self.events),
-                    "clipped": self.clipped,
+                    "clipped": self.clipped, "i2c_errors": self.i2c_errors, "fault": self.fault,
+                    "tick_age_s": round(now - self.last_tick, 3),
                     "zero_mv": {k: round(v * 1000, 3) for k, v in self.sampler.zero_v.items()}}
 
 
@@ -316,8 +340,14 @@ def main(argv=None):
         next_t = time.monotonic()
         k = 0
         while not stop.is_set():
-            row = ctrl.tick()
-            if ctrl.logging_now():
+            try:
+                row = ctrl.tick()
+            except Exception as e:  # never leave the bridge driving with nobody watching the current
+                motor.sleep()
+                ctrl.fault = f"controller stopped: {e!r}"
+                print(ctrl.fault, file=sys.stderr, flush=True)
+                return
+            if row is not None and ctrl.logging_now():
                 rec.write(row)
             k += 1
             if k % (args.rate * 2) == 0:  # every ~2 s

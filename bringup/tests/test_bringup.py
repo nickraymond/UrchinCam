@@ -409,6 +409,27 @@ class TestJog(unittest.TestCase):
         self.assertEqual(states[first_rev - 1], "asleep")
         self.assertGreaterEqual(rows[first_rev]["t_s"] - rows[first_brake]["t_s"], jog_server.BRAKE_S)
 
+    def test_i2c_errors_skip_then_stop(self):
+        ctrl = self._ctrl()
+        ctrl.request("fwd")
+        self._run_for(ctrl, 0.5)
+        take, fails = ctrl.sampler.take, {"n": 3}
+
+        def flaky():
+            if fails["n"] > 0:
+                fails["n"] -= 1
+                raise OSError(5, "Input/output error")
+            return take()
+        ctrl.sampler.take = flaky
+        self._run_for(ctrl, 0.2)
+        self.assertEqual(ctrl.state, "fwd")  # a few bad reads don't stop it
+        self.assertEqual(ctrl.i2c_errors, 3)
+        fails["n"] = jog_server.SENSOR_FAIL_N + 5
+        self._run_for(ctrl, 0.3)
+        self.assertIn(ctrl.state, ("brake", "asleep"))
+        self.assertTrue(any("current sensor not answering" in e["text"] for e in ctrl.events))
+        self.assertEqual(ctrl.want, "stop")
+
     def test_settings_clamped(self):
         ctrl = self._ctrl()
         s = ctrl.set_settings({"stall_amps": 99, "max_on_s": 0, "bogus": 1})

@@ -147,6 +147,10 @@ const STATE_NAME = { asleep: "Stopped", fwd: "Forward", rev: "Reverse", brake: "
 let lastEventsKey = "";
 function render() {
   const st = status;
+  if (st.fault || st.tick_age_s > 1) {
+    $("conn").textContent = st.fault ? "Pi controller stopped: restart jog_server" : "Pi controller not responding";
+    $("conn").className = "pill bad";
+  } else if ($("conn").textContent !== "connected") { $("conn").textContent = "connected"; $("conn").className = "pill ok"; }
   $("state").textContent = STATE_NAME[st.state] || st.state;
   $("state").className = "v" + (st.state === "fwd" ? " state-fwd" : st.state === "rev" ? " state-rev" : "");
   const n = Math.min(86, A.length);
@@ -167,12 +171,12 @@ function render() {
     for (const e of evs) {
       const li = document.createElement("li");
       li.textContent = `${e.t.toFixed(1)} s  ${e.text}`;
-      if (/stall|lost|max run/.test(e.text)) li.className = "stall";
+      if (/stall|lost|max run|I2C|sensor/.test(e.text)) li.className = "stall";
       ul.appendChild(li);
     }
   }
   const z = st.zero_mv || {};
-  $("foot").textContent = `ADC ±${st.fsr} V · zeros fwd ${z.fwd} / rev ${z.rev} / asleep ${z.sleep} mV · clipped ${st.clipped} · I2C retries ${st.i2c_retries} · log ${st.run_dir}`;
+  $("foot").textContent = `ADC ±${st.fsr} V · zeros fwd ${z.fwd} / rev ${z.rev} / asleep ${z.sleep} mV · clipped ${st.clipped} · I2C retries ${st.i2c_retries} · I2C failed reads ${st.i2c_errors} · log ${st.run_dir}`;
   // a safety stop (stall, max time, lost contact) clears a latched button
   if (latched && st.want === "stop" && performance.now() - lastPress > 600) setLatched(null);
 }
