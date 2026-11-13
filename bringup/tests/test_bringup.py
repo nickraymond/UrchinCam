@@ -162,7 +162,7 @@ class TestEnergy(unittest.TestCase):
 
 
 class TestRunWipes(unittest.TestCase):
-    def _run(self, jam=(), offset_v=(0.0, 0.0), **kw):
+    def _run(self, jam=(), offset_v=(0.0, 0.0), show=lambda phase: None, **kw):
         clock, gpio = FakeClock(), FakeGpio()
         motor = hw.Motor(gpio)
         adc = SimMotorADC(gpio, clock, jam=jam, offset_v=offset_v)
@@ -182,8 +182,15 @@ class TestRunWipes(unittest.TestCase):
 
         motor.forward, motor.reverse = fwd, rev
         a = args(**kw)
-        samples, strokes, self.zeros = wipe_logger.run_wipes(motor, sampler, a, clock=clock, sleep=clock.sleep)
+        samples, strokes, self.zeros = wipe_logger.run_wipes(motor, sampler, a, clock=clock, sleep=clock.sleep,
+                                                             show=show)
         return samples, strokes, gpio, a
+
+    def test_led_follows_phase(self):
+        shown = []
+        self._run(wipes=1, show=shown.append)
+        self.assertEqual(shown, ["fwd", "brake", "pause", "rev", "brake", "pause", "pause"])
+        self.assertEqual(set(wipe_logger.PHASE_LED), {"fwd", "rev"})  # every other phase leaves LED1 off
 
     def test_clean_run(self):
         samples, strokes, gpio, a = self._run()

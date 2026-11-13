@@ -20,7 +20,7 @@ import sys
 import time
 
 import wipe_analysis as wa
-from urchin_hw import raw_to_volts
+from urchin_hw import LEDS, raw_to_volts
 
 DATA_ROOT = os.path.expanduser("~/NereusData/UrchinCam")
 MAX_STROKE_S = 10.0
@@ -30,6 +30,7 @@ VBUS_FSR = 4.096
 # reverse; ~0.2 mV asleep. Coast resets it to the forward value. So there are two zeros: "fwd" and "rev".
 ZERO_MAX_V = 0.015  # a zero above 15 mV (75 mA) means current is flowing: the motor is moving
 REV_PULSE_S = 0.002  # reverse pulse before the brake that reads the "rev" zero; far too short to move a gearmotor
+PHASE_LED = {"fwd": "LED1 green", "rev": "LED1 red"}  # brake, pause and the zero checks: LED1 off
 
 
 class Sampler:
@@ -73,6 +74,25 @@ class Sampler:
         }
 
 
+class PhaseLeds:
+    """Bench aid: LED1 green while driving forward, red in reverse, off otherwise. Dimmed with software PWM."""
+
+    def __init__(self, level):
+        from gpiozero import PWMLED
+        pins = {label: pin for pin, label in LEDS}
+        self.level = level
+        self.leds = {phase: PWMLED(pins[label], active_high=False, initial_value=0, frequency=500)
+                     for phase, label in PHASE_LED.items()}
+
+    def show(self, phase):
+        for p, led in self.leds.items():
+            led.value = self.level if p == phase else 0
+
+    def close(self):
+        for led in self.leds.values():
+            led.close()
+
+
 class ZeroError(RuntimeError):
     pass
 
@@ -105,11 +125,12 @@ def measure_zeros(motor, sampler, period, sleep, settle_s=0.1, n=64):
     return out
 
 
-def run_wipes(motor, sampler, args, clock=time.monotonic, sleep=time.sleep):
+def run_wipes(motor, sampler, args, clock=time.monotonic, sleep=time.sleep, show=lambda phase: None):
     """Returns (samples, strokes_meta, zeros). Leaves the motor coasting; the caller puts it to sleep.
 
     With --zero auto (default) the no-load VISEN zero is measured before the first wipe and subtracted from
-    `amps`; it is measured again after the last one so the summary shows any drift.
+    `amps`; it is measured again after the last one so the summary shows any drift. `show(phase)` is called as
+    each phase starts (PhaseLeds.show lights LED1 for it).
     """
     period = 1.0 / args.rate
     samples, strokes = [], []
@@ -121,7 +142,8 @@ def run_wipes(motor, sampler, args, clock=time.monotonic, sleep=time.sleep):
     if args.zero == "auto":
         zeros["start"] = measure_zeros(motor, sampler, period, sleep)
         sampler.zero_v = dict(zeros["start"])
-    _drive(motor, sampler, args, clock, sleep, period, t0, samples, strokes)
+    _drive(motor, sampler, args, clock, sleep, period, t0, samples, strokes, show)
+    show("pause")
     if args.zero == "auto":
         sleep(args.pause_s)
         try:
@@ -131,10 +153,11 @@ def run_wipes(motor, sampler, args, clock=time.monotonic, sleep=time.sleep):
     return samples, strokes, zeros
 
 
-def _drive(motor, sampler, args, clock, sleep, period, t0, samples, strokes):
+def _drive(motor, sampler, args, clock, sleep, period, t0, samples, strokes, show):
     stalls = 0
 
     def log_for(phase, wipe, seconds, detector=None):
+        show(phase)
         if phase != "brake":  # brake keeps the zero of the stroke before it
             sampler.zero_key = "rev" if phase == "rev" else "fwd"
         start = clock()
@@ -228,6 +251,8 @@ def parse_args(argv=None):
     p.add_argument("--vbus-nominal", type=float, default=5.0, help="used for energy when there's no divider")
     p.add_argument("--noload-amps", type=float, default=None, help="free-run current (test card 7.4)")
     p.add_argument("--stall-ref-amps", type=float, default=None, help="stall current from a stall run (9.2)")
+    p.add_argument("--led-level", type=float, default=0.02,
+                   help="LED1 brightness 0-1 for the phase colors (green fwd, red rev); 0 = off")
     p.add_argument("--zero", choices=["auto", "off"], default="auto",
                    help="auto: measure and subtract VISEN's no-load zero (coast and brake, motor at rest)")
     a = p.parse_args(argv)
@@ -248,15 +273,23 @@ def main(argv=None):
     dev = hw.I2CDevice(hw.ADS1115_ADDR)
     adc = hw.ADS1115(dev, fsr=args.fsr, rate=args.rate)
     sampler = Sampler(adc, args.fsr, args.r_iset, args.vbus_divider)
+    leds = None
+    if args.led_level > 0:
+        try:
+            leds = PhaseLeds(args.led_level)
+        except ImportError:
+            print("gpiozero missing: no LED1 phase colors", file=sys.stderr)
     samples, strokes, zeros = [], [], {}
     try:
-        samples, strokes, zeros = run_wipes(motor, sampler, args)
+        samples, strokes, zeros = run_wipes(motor, sampler, args, show=leds.show if leds else (lambda phase: None))
     except ZeroError as e:
         print(f"stopped before the first wipe: {e}", file=sys.stderr)
         os.rmdir(run_dir)  # nothing was logged
         sys.exit(2)
     finally:
         motor.sleep()
+        if leds:
+            leds.close()
         try:
             adc.stop()
         finally:
