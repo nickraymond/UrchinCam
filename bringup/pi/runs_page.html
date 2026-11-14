@@ -118,7 +118,7 @@ tr.sel td { box-shadow: inset 0 0 0 9999px rgba(37,99,235,.08); }
       <div class="stat"><div class="k">Cycle</div><div class="v" id="l-cycle">—</div></div>
       <div class="stat"><div class="k">Current now</div><div class="v"><span id="l-now">—</span> <small>mA</small></div></div>
       <div class="stat"><div class="k">Peak this stroke</div><div class="v"><span id="l-peak">—</span> <small>mA</small></div></div>
-      <div class="stat"><div class="k">Shaft angle</div><div class="v"><span id="l-ang">—</span> <small>°</small></div></div>
+      <div class="stat"><div class="k">Shaft angle (0–360)</div><div class="v"><span id="l-ang">—</span> <small>°</small></div></div>
     </div>
     <canvas id="live-plot"></canvas>
     <p class="note" id="l-last">Live current, last 10 s. Green band = forward, red = reverse, dashed = stall cut-off.</p>
@@ -331,7 +331,7 @@ function renderLive() {
   const n = Math.min(86, A.length);
   if (n) { let s = 0; for (let i = A.length - n; i < A.length; i++) s += A[i]; $("l-now").textContent = mA(s / n); }
   $("l-peak").textContent = st.peak_a ? mA(st.peak_a) : "—";
-  $("l-ang").textContent = st.angle == null ? "—" : st.angle.toFixed(1);
+  $("l-ang").textContent = st.angle == null ? "—" : (((st.angle % 360) + 360) % 360).toFixed(1);
   $("f-limits").textContent = `Stall cut-off ${st.settings.stall_amps} A for ${st.settings.stall_ms} ms (change it on the Drive page). ` +
     "Keep this page open and in front during a run: hiding or closing it stops the motor.";
   const running = !!st.run_id;

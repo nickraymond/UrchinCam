@@ -125,7 +125,8 @@ ul.events li:first-child { border-top: 0; }
 
   <section class="panel">
     <div class="angle-head">
-      <div class="stat"><div class="k">Shaft angle</div><div class="v"><span id="ang">—</span> <small>°</small></div></div>
+      <div class="stat"><div class="k">Shaft angle (0–360)</div><div class="v"><span id="ang">—</span> <small>°</small></div>
+        <div class="note" id="ang-total"></div></div>
       <div class="stat"><div class="k">Speed (0.2 s)</div><div class="v"><span id="spd">—</span> <small>°/s</small></div></div>
       <div class="stat"><div class="k">Speed</div><div class="v"><span id="rpm">—</span> <small>RPM</small></div></div>
       <div class="btns"><button id="b-zero">Zero angle here</button><button id="b-flip">Flip direction</button></div>
@@ -211,9 +212,10 @@ function render() {
     }
   }
   // shaft angle and speed (speed from the angle 0.2 s ago)
-  if (st.angle == null) { $("ang").textContent = "—"; $("spd").textContent = "—"; $("rpm").textContent = "—"; }
+  if (st.angle == null) { $("ang").textContent = "—"; $("ang-total").textContent = ""; $("spd").textContent = "—"; $("rpm").textContent = "—"; }
   else {
-    $("ang").textContent = st.angle.toFixed(1);
+    $("ang").textContent = (((st.angle % 360) + 360) % 360).toFixed(1);
+    $("ang-total").textContent = `total turned since zero: ${st.angle.toFixed(1)}°`;
     let j = G.length - 1; while (j >= 0 && G[j] == null) j--;
     let i = j; while (i > 0 && (G[i - 1] == null || T[j] - T[i - 1] <= 0.2)) i--;
     while (i < j && G[i] == null) i++;
