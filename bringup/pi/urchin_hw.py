@@ -120,11 +120,14 @@ class ADS1115:
 
     def single_shot(self, channel, fsr, timeout_s=0.05):
         """One conversion of AIN<channel> at the given range; returns (raw, volts)."""
-        self._write_config(ads_config_word(channel, fsr, self.rate, single_shot=True))
-        # Coming out of continuous mode, OS can read 1 ("not converting") before the new conversion has started, and
-        # the Conversion register still holds the last AIN0 result: cam02 11/13 read VISEN x4 as the pot that way.
-        # One full conversion time first, then poll.
-        time.sleep(1.0 / self.rate + 0.0003)
+        word = ads_config_word(channel, fsr, self.rate, single_shot=True)
+        if self.channel is not None:
+            # In continuous mode a write with OS=1 does not start a conversion (OS only starts one from power-down),
+            # so the Conversion register kept the last AIN0 result: cam02 11/13 read VISEN x4 (0.146 V) as the pot.
+            # Drop to power-down single-shot first, then start.
+            self._write_config(word & 0x7FFF)
+        self._write_config(word)
+        time.sleep(1.0 / self.rate + 0.0003)  # one conversion time, so a stale OS=1 can't end the poll early
         deadline = time.monotonic() + timeout_s
         while not self._read_reg(REG_CONFIG) & 0x8000:  # OS reads 1 when idle
             if time.monotonic() > deadline:
