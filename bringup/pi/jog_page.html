@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jog Bench</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --ink2: #4b5563; --muted: #8a94a3; --line: #e3e7ec;
+  --grid: #eef1f4; --trace: #2563eb; --fwd: #16a34a; --fwd-band: rgba(22,163,74,.10); --rev: #dc2626;
+  --rev-band: rgba(220,38,38,.10); --warn: #b45309; --ok: #15803d; --bad: #b91c1c; --btn: #eef1f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f25; --ink: #e8ebef; --ink2: #b4bcc7; --muted: #7c8696; --line: #2b323b;
+    --grid: #232a32; --trace: #60a5fa; --fwd: #4ade80; --fwd-band: rgba(74,222,128,.12); --rev: #f87171;
+    --rev-band: rgba(248,113,113,.12); --warn: #fbbf24; --ok: #4ade80; --bad: #f87171; --btn: #252c35;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f25; --ink: #e8ebef; --ink2: #b4bcc7; --muted: #7c8696; --line: #2b323b;
+  --grid: #232a32; --trace: #60a5fa; --fwd: #4ade80; --fwd-band: rgba(74,222,128,.12); --rev: #f87171;
+  --rev-band: rgba(248,113,113,.12); --warn: #fbbf24; --ok: #4ade80; --bad: #f87171; --btn: #252c35;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0 auto 0 0; }
+nav.pages { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+nav.pages a { padding: 6px 14px; font-size: 14px; font-weight: 600; color: var(--ink2); text-decoration: none; background: var(--btn); }
+nav.pages a + a { border-left: 1px solid var(--line); }
+nav.pages a[aria-current="page"] { background: var(--ink); color: var(--panel); }
+.pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink2); }
+.pill.ok { color: var(--ok); border-color: currentColor; }
+.pill.bad { color: var(--bad); border-color: currentColor; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.stat .k { font-size: 12px; color: var(--muted); }
+.stat .v { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .v small { font-size: 13px; font-weight: 400; color: var(--ink2); }
+.state-fwd { color: var(--fwd); } .state-rev { color: var(--rev); }
+.drive { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; }
+button { font: inherit; color: var(--ink); background: var(--btn); border: 1px solid var(--line); border-radius: 10px;
+  cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.dir { height: 84px; font-size: 20px; font-weight: 600; }
+.dir.fwd.on { background: var(--fwd); color: #fff; border-color: var(--fwd); }
+.dir.rev.on { background: var(--rev); color: #fff; border-color: var(--rev); }
+.dir .hint { display: block; font-size: 12px; font-weight: 400; opacity: .75; }
+.stop { width: 120px; font-size: 18px; font-weight: 700; border-width: 2px; }
+.cycle { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cycle .go { height: 52px; padding: 0 22px; font-size: 17px; font-weight: 600; }
+.cycle .go.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.cycle .go:disabled { opacity: .45; cursor: not-allowed; }
+.cycle input { font: inherit; width: 80px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); }
+.cycle .seg button { padding: 6px 10px; }
+.plot-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.plot-head .title { font-weight: 600; margin-right: auto; }
+.seg button { padding: 4px 10px; font-size: 13px; border-radius: 6px; }
+.seg button.on { background: var(--ink); color: var(--panel); }
+canvas { width: 100%; height: 320px; display: block; }
+canvas#aplot { height: 200px; }
+.angle-head { display: flex; gap: 18px; align-items: end; flex-wrap: wrap; margin-bottom: 8px; }
+.angle-head .btns { margin-left: auto; display: flex; gap: 6px; }
+.angle-head .btns button { padding: 5px 10px; font-size: 13px; }
+.settings { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.settings label { font-size: 12px; color: var(--ink2); display: grid; gap: 3px; }
+.settings input { font: inherit; width: 96px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); }
+.settings button { padding: 6px 14px; }
+.note { font-size: 12px; color: var(--muted); }
+ul.events { list-style: none; margin: 0; padding: 0; font-size: 13px; color: var(--ink2); }
+ul.events li { padding: 3px 0; border-top: 1px solid var(--line); }
+ul.events li:first-child { border-top: 0; }
+.stall { color: var(--warn); font-weight: 600; }
+@media (max-width: 600px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .stat .v { font-size: 22px; }
+  .stop { width: 84px; }
+  canvas { height: 240px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Jog bench · wiper motor</h1>
+    <nav class="pages"><a href="/" aria-current="page">Drive</a><a href="/runs">Runs</a></nav>
+    <span id="conn" class="pill">connecting…</span>
+    <span id="thr" class="pill">power —</span>
+  </header>
+
+  <section class="panel stats">
+    <div class="stat"><div class="k">State</div><div class="v" id="state">—</div></div>
+    <div class="stat"><div class="k">Current now (0.1 s mean)</div><div class="v"><span id="now">—</span> <small>mA</small></div></div>
+    <div class="stat"><div class="k">Peak this drive</div><div class="v"><span id="peak">—</span> <small>mA</small></div></div>
+    <div class="stat"><div class="k">Run time</div><div class="v"><span id="run">—</span> <small>s</small></div></div>
+  </section>
+
+  <section class="drive">
+    <button class="dir rev" id="b-rev">◀ Reverse<span class="hint">hold, or tap to latch</span></button>
+    <button class="stop" id="b-stop">STOP</button>
+    <button class="dir fwd" id="b-fwd">Forward ▶<span class="hint">hold, or tap to latch</span></button>
+  </section>
+
+  <section class="panel cycle">
+    <button class="go" id="b-cycle">Wipe cycle</button>
+    <label class="note" for="c-s">seconds each way</label>
+    <input id="c-s" type="number" min="0.5" max="30" step="0.5" value="5">
+    <span class="seg" id="c-pick"><button data-s="1">1 s</button><button data-s="2">2 s</button><button data-s="5" class="on">5 s</button><button data-s="10">10 s</button><button data-s="20">20 s</button></span>
+    <span class="note" id="c-status">forward, brake, then reverse for the same time</span>
+  </section>
+
+  <section class="panel">
+    <div class="plot-head">
+      <span class="title">Motor current (mA)</span>
+      <span class="seg" id="win"><button data-s="5">5 s</button><button data-s="10" class="on">10 s</button><button data-s="30">30 s</button><button data-s="60">60 s</button></span>
+      <button id="pause" style="padding:4px 10px;font-size:13px">Pause plot</button>
+    </div>
+    <canvas id="plot"></canvas>
+    <div class="note">Green band = forward, red band = reverse. Dashed line = stall cut-off. Hover the plot for values.</div>
+  </section>
+
+  <section class="panel">
+    <div class="angle-head">
+      <div class="stat"><div class="k">Shaft angle (0–360)</div><div class="v"><span id="ang">—</span> <small>°</small></div>
+        <div class="note" id="ang-total"></div></div>
+      <div class="stat"><div class="k">Speed (0.2 s)</div><div class="v"><span id="spd">—</span> <small>°/s</small></div></div>
+      <div class="stat"><div class="k">Speed</div><div class="v"><span id="rpm">—</span> <small>RPM</small></div></div>
+      <div class="btns"><button id="b-zero">Zero angle here</button><button id="b-flip">Flip direction</button></div>
+    </div>
+    <canvas id="aplot"></canvas>
+    <div class="note" id="pot-note">Shaft angle from the pot (degrees, same time window as the current plot).</div>
+  </section>
+
+  <section class="panel">
+    <div class="settings">
+      <label>Stall cut-off (A)<input id="s-amps" type="number" step="0.05" min="0.05" max="4"></label>
+      <label>for (ms)<input id="s-ms" type="number" step="10" min="20" max="2000"></label>
+      <label>Max run time (s)<input id="s-max" type="number" step="0.5" min="0.5" max="60"></label>
+      <button id="apply">Apply</button>
+      <span class="note" id="applied"></span>
+    </div>
+    <p class="note">The motor also stops if this page stops talking to the Pi for 1.5 s (tab hidden or closed, tunnel dropped).
+      Pololu warns that stalls can damage the motor or gearbox: keep stall holds short.</p>
+  </section>
+
+  <section class="panel">
+    <div class="plot-head"><span class="title">Events</span></div>
+    <ul class="events" id="events"><li>none yet</li></ul>
+    <p class="note" id="foot"></p>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const mA = a => { const v = Math.round(a * 1000); return String(v === 0 ? 0 : v); };  // no "-0"
+const KEEP_S = 60, TAP_MS = 300, HB_MS = 200;
+const T = [], A = [], S = [], G = [];
+let status = null, winS = 10, paused = false, hover = null, dirty = true;
+
+// ---------- stream ----------
+function connect() {
+  const es = new EventSource("/stream");
+  es.onopen = () => { $("conn").textContent = "connected"; $("conn").className = "pill ok"; };
+  es.onerror = () => { $("conn").textContent = "lost: motor stops on its own"; $("conn").className = "pill bad"; };
+  es.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    for (let i = 0; i < m.t.length; i++) { T.push(m.t[i]); A.push(m.a[i]); S.push(m.s[i]); G.push(m.g ? m.g[i] : null); }
+    if (T.length) {
+      const cut = T[T.length - 1] - KEEP_S;
+      let k = 0; while (k < T.length && T[k] < cut) k++;
+      if (k) { T.splice(0, k); A.splice(0, k); S.splice(0, k); G.splice(0, k); }
+    }
+    status = m.status; render(); dirty = true;
+  };
+}
+
+// ---------- readouts ----------
+const STATE_NAME = { asleep: "Stopped", fwd: "Forward", rev: "Reverse", brake: "Braking" };
+let lastEventsKey = "";
+function render() {
+  const st = status;
+  if (st.fault || st.tick_age_s > 1) {
+    $("conn").textContent = st.fault ? "Pi controller stopped: restart jog_server" : "Pi controller not responding";
+    $("conn").className = "pill bad";
+  } else if ($("conn").textContent !== "connected") { $("conn").textContent = "connected"; $("conn").className = "pill ok"; }
+  $("state").textContent = STATE_NAME[st.state] || st.state;
+  $("state").className = "v" + (st.state === "fwd" ? " state-fwd" : st.state === "rev" ? " state-rev" : "");
+  const n = Math.min(86, A.length);
+  if (n) { let s = 0; for (let i = A.length - n; i < A.length; i++) s += A[i]; $("now").textContent = mA(s / n); }
+  $("peak").textContent = st.peak_a ? (st.peak_a * 1000).toFixed(0) : "—";
+  $("run").textContent = st.run_s == null ? "—" : st.run_s.toFixed(1);
+  const thr = st.throttled;
+  $("thr").textContent = thr == null ? "power —" : thr === "0x0" ? "power OK (0x0)" : "power warning " + thr;
+  $("thr").className = "pill " + (thr === "0x0" ? "ok" : thr ? "bad" : "");
+  for (const [id, k] of [["s-amps", "stall_amps"], ["s-ms", "stall_ms"], ["s-max", "max_on_s"]])
+    if (document.activeElement !== $(id) && !$(id).dataset.edited) $(id).value = st.settings[k];
+  const key = JSON.stringify(st.events);
+  if (key !== lastEventsKey) {
+    lastEventsKey = key;
+    const ul = $("events"); ul.textContent = "";
+    const evs = st.events.slice().reverse();
+    if (!evs.length) ul.innerHTML = "<li>none yet</li>";
+    for (const e of evs) {
+      const li = document.createElement("li");
+      li.textContent = `${e.t.toFixed(1)} s  ${e.text}`;
+      if (/stall|lost|max run|I2C|sensor/.test(e.text)) li.className = "stall";
+      ul.appendChild(li);
+    }
+  }
+  // shaft angle and speed (speed from the angle 0.2 s ago)
+  if (st.angle == null) { $("ang").textContent = "—"; $("ang-total").textContent = ""; $("spd").textContent = "—"; $("rpm").textContent = "—"; }
+  else {
+    $("ang").textContent = (((st.angle % 360) + 360) % 360).toFixed(1);
+    $("ang-total").textContent = `total turned since zero: ${st.angle.toFixed(1)}°`;
+    let j = G.length - 1; while (j >= 0 && G[j] == null) j--;
+    let i = j; while (i > 0 && (G[i - 1] == null || T[j] - T[i - 1] <= 0.2)) i--;
+    while (i < j && G[i] == null) i++;
+    if (j > i && T[j] - T[i] > 0.1) {
+      const dps = (G[j] - G[i]) / (T[j] - T[i]);
+      $("spd").textContent = dps.toFixed(0); $("rpm").textContent = (dps / 6).toFixed(1);
+    }
+  }
+  if (st.pot_cal) $("pot-note").textContent = `Shaft angle from the pot: ${st.pot_cal.deg_per_v} °/V (${st.pot_cal.source}). ` +
+    `Pot ${st.pot_v == null ? "—" : st.pot_v.toFixed(3) + " V"} · read errors ${st.pot_errors}. Same time window as the current plot.`;
+  const z = st.zero_mv || {};
+  $("foot").textContent = `ADC ±${st.fsr} V · zeros fwd ${z.fwd} / rev ${z.rev} / asleep ${z.sleep} mV · clipped ${st.clipped} · I2C retries ${st.i2c_retries} · I2C failed reads ${st.i2c_errors} · log ${st.run_dir}`;
+  // a safety stop (stall, max time, lost contact) clears a latched button
+  if (latched && st.want === "stop" && performance.now() - lastPress > 600) setLatched(null);
+  if (cycleOn && !st.cycle && performance.now() - lastPress > 600) setCycle(false);
+  const c = st.cycle;
+  $("c-status").textContent = c ? `${c.stage === "fwd" ? "forward" : "reverse"} ${st.run_s == null ? "" : st.run_s.toFixed(1) + " / "}${c.s} s`
+    : "forward, brake, then reverse for the same time";
+  $("b-cycle").disabled = !cycleOn && (st.state !== "asleep" || !!latched || !!holding);
+}
+
+// ---------- drive buttons ----------
+let latched = null, holding = null, pressT = 0, lastPress = 0, hbTimer = null;
+function post(path, body) {
+  return fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+    .catch(() => {});
+}
+function hbOn() { if (!hbTimer) hbTimer = setInterval(() => post("/hb"), HB_MS); }
+function hbOff() { if (hbTimer) { clearInterval(hbTimer); hbTimer = null; } }
+let cycleOn = false;
+function hbSync() { if (holding || latched || cycleOn) hbOn(); else hbOff(); }
+function setLatched(d) {
+  latched = d;
+  $("b-fwd").classList.toggle("on", d === "fwd" || holding === "fwd");
+  $("b-rev").classList.toggle("on", d === "rev" || holding === "rev");
+  hbSync();
+}
+function setCycle(on) {
+  cycleOn = on; $("b-cycle").classList.toggle("on", on);
+  $("b-cycle").textContent = on ? "Stop cycle" : "Wipe cycle"; hbSync();
+}
+function stopAll() { holding = null; setCycle(false); setLatched(null); hbOff(); post("/cmd", { action: "stop" }); }
+
+for (const d of ["fwd", "rev"]) {
+  const b = $("b-" + d);
+  b.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    if (latched === d) { stopAll(); return; }   // tap a latched button again to stop
+    setCycle(false);                             // a manual direction ends a cycle
+    b.setPointerCapture(e.pointerId);
+    holding = d; pressT = lastPress = performance.now();
+    latched = null; setLatched(null); b.classList.add("on");
+    post("/cmd", { action: d }); hbOn();
+  });
+  const release = () => {
+    if (holding !== d) return;
+    holding = null;
+    if (performance.now() - pressT < TAP_MS) setLatched(d);   // quick tap: stay on
+    else stopAll();                                            // held: stop on release
+  };
+  b.addEventListener("pointerup", release);
+  b.addEventListener("pointercancel", release);
+  b.addEventListener("contextmenu", e => e.preventDefault());
+}
+$("b-cycle").addEventListener("click", async () => {
+  if (cycleOn) { stopAll(); return; }
+  const secs = +$("c-s").value;
+  lastPress = performance.now(); setCycle(true);
+  const r = await fetch("/cmd", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "cycle", seconds: secs }) }).catch(() => null);
+  if (!r || !r.ok) { setCycle(false); $("c-status").textContent = r ? (await r.json()).error : "no answer from the Pi"; }
+});
+for (const b of $("c-pick").querySelectorAll("button")) b.addEventListener("click", () => {
+  $("c-s").value = b.dataset.s; for (const o of $("c-pick").querySelectorAll("button")) o.classList.toggle("on", o === b);
+});
+$("c-s").addEventListener("input", () => { for (const o of $("c-pick").querySelectorAll("button")) o.classList.toggle("on", o.dataset.s === $("c-s").value); });
+$("b-stop").addEventListener("pointerdown", e => { e.preventDefault(); stopAll(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" || e.key === " ") { e.preventDefault(); stopAll(); } });
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopAll(); });
+window.addEventListener("pagehide", stopAll);
+
+// ---------- pot ----------
+$("b-zero").addEventListener("click", () => post("/pot/zero"));
+$("b-flip").addEventListener("click", () => post("/pot/flip"));
+
+// ---------- settings ----------
+for (const id of ["s-amps", "s-ms", "s-max"]) $(id).addEventListener("input", () => { $(id).dataset.edited = "1"; });
+$("apply").addEventListener("click", async () => {
+  const r = await fetch("/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stall_amps: $("s-amps").value, stall_ms: $("s-ms").value, max_on_s: $("s-max").value }) });
+  const s = await r.json();
+  for (const id of ["s-amps", "s-ms", "s-max"]) delete $(id).dataset.edited;
+  $("applied").textContent = `applied: ${s.stall_amps} A for ${s.stall_ms} ms, max ${s.max_on_s} s (next drive)`;
+});
+
+// ---------- plot ----------
+for (const b of $("win").querySelectorAll("button")) b.addEventListener("click", () => {
+  winS = +b.dataset.s; for (const o of $("win").querySelectorAll("button")) o.classList.toggle("on", o === b); dirty = true;
+});
+$("pause").addEventListener("click", () => {
+  paused = !paused; $("pause").textContent = paused ? "Resume plot" : "Pause plot"; dirty = true;
+  frozen = paused ? { T: T.slice(), A: A.slice(), S: S.slice(), G: G.slice() } : null;
+});
+let frozen = null;
+const cv = $("plot"), ctx = cv.getContext("2d");
+cv.addEventListener("mousemove", e => { const r = cv.getBoundingClientRect(); hover = e.clientX - r.left; dirty = true; });
+cv.addEventListener("mouseleave", () => { hover = null; dirty = true; });
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < x) lo = m + 1; else hi = m; } return lo; }
+function niceStep(range) { const raw = range / 5, p = Math.pow(10, Math.floor(Math.log10(raw))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= raw) return m * p; return 10 * p; }
+
+function draw() {
+  requestAnimationFrame(draw);
+  if (!dirty) return; dirty = false;
+  drawAngle(frozen || { T, A, S, G });
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const d = frozen || { T, A, S };
+  const L = 52, R = 10, Tp = 8, B = 26, pw = W - L - R, ph = H - Tp - B;
+  const tEnd = d.T.length ? d.T[d.T.length - 1] : 0, tStart = tEnd - winS;
+  const i0 = lowerBound(d.T, tStart);
+  const stallMa = status ? status.settings.stall_amps * 1000 : null;
+  let lo = 0, hi = 300;
+  for (let i = i0; i < d.T.length; i++) { const v = d.A[i] * 1000; if (v > hi) hi = v; if (v < lo) lo = v; }
+  if (stallMa) hi = Math.max(hi, stallMa);  // keep the cut-off line in view
+  hi *= 1.08; lo = lo < -5 ? lo * 1.2 : 0;  // sub-mA noise below zero doesn't open a negative band
+  const step = niceStep(hi - lo); hi = Math.ceil(hi / step) * step; lo = Math.floor(lo / step) * step;
+  const X = t => L + (t - tStart) / winS * pw, Y = v => Tp + (hi - v) / (hi - lo) * ph;
+
+  // direction bands
+  ctx.fillStyle = css("--fwd-band");
+  const bands = { f: css("--fwd-band"), r: css("--rev-band") };
+  let runStart = null, runS = null;
+  for (let i = i0; i <= d.T.length; i++) {
+    const s = i < d.T.length ? d.S[i] : null;
+    if (s !== runS) {
+      if (runS === "f" || runS === "r") { ctx.fillStyle = bands[runS]; ctx.fillRect(X(runStart), Tp, X(d.T[i - 1]) - X(runStart), ph); }
+      runS = s; runStart = i < d.T.length ? d.T[i] : null;
+    }
+  }
+  // grid + axes labels
+  ctx.strokeStyle = css("--grid"); ctx.fillStyle = css("--muted"); ctx.lineWidth = 1;
+  ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    const y = Math.round(Y(v)) + .5; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + pw, y); ctx.stroke();
+    ctx.fillText(v.toFixed(step < 1 ? 1 : 0), L - 6, y);
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const ts = winS <= 10 ? 1 : winS <= 30 ? 5 : 10;
+  for (let k = 0; k <= winS; k += ts) { const x = X(tEnd - k); ctx.fillText(k ? `−${k} s` : "now", x, Tp + ph + 6); }
+  // stall line
+  if (stallMa && stallMa <= hi) {
+    ctx.strokeStyle = css("--warn"); ctx.setLineDash([5, 4]); ctx.beginPath();
+    ctx.moveTo(L, Y(stallMa)); ctx.lineTo(L + pw, Y(stallMa)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css("--warn"); ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+    ctx.fillText(`stall cut-off ${stallMa.toFixed(0)} mA`, L + 4, Y(stallMa) - 2);
+  }
+  // trace: min/max per pixel column so spikes survive decimation
+  ctx.strokeStyle = css("--trace"); ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
+  let col = null, mn = 0, mx = 0, first = true;
+  const flush = () => { if (col === null) return; const x = L + col + .5;
+    if (first) { ctx.moveTo(x, Y(mx)); first = false; } else ctx.lineTo(x, Y(mx)); ctx.lineTo(x, Y(mn)); };
+  for (let i = i0; i < d.T.length; i++) {
+    const c = Math.floor(X(d.T[i]) - L), v = d.A[i] * 1000;
+    if (c !== col) { flush(); col = c; mn = mx = v; } else { if (v < mn) mn = v; if (v > mx) mx = v; }
+  }
+  flush(); ctx.stroke();
+  // hover readout
+  if (hover !== null && hover >= L && hover <= L + pw && d.T.length) {
+    const t = tStart + (hover - L) / pw * winS, i = Math.min(d.T.length - 1, lowerBound(d.T, t));
+    const x = X(d.T[i]), v = d.A[i] * 1000;
+    ctx.strokeStyle = css("--muted"); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, Tp); ctx.lineTo(x, Tp + ph); ctx.stroke();
+    ctx.fillStyle = css("--trace"); ctx.beginPath(); ctx.arc(x, Y(v), 4, 0, 7); ctx.fill();
+    const label = `${(d.T[i] - tEnd).toFixed(2)} s · ${v.toFixed(0)} mA · ${{ a: "stopped", f: "forward", r: "reverse", b: "braking" }[d.S[i]]}`;
+    ctx.font = "12px -apple-system, sans-serif"; const w = ctx.measureText(label).width + 12;
+    const bx = Math.min(Math.max(x - w / 2, L), L + pw - w);
+    ctx.fillStyle = css("--panel"); ctx.strokeStyle = css("--line"); ctx.fillRect(bx, Tp + 2, w, 20); ctx.strokeRect(bx, Tp + 2, w, 20);
+    ctx.fillStyle = css("--ink"); ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(label, bx + 6, Tp + 12);
+  }
+}
+const acv = $("aplot"), actx = acv.getContext("2d");
+function drawAngle(d) {
+  const dpr = window.devicePixelRatio || 1, W = acv.clientWidth, H = acv.clientHeight;
+  if (acv.width !== W * dpr || acv.height !== H * dpr) { acv.width = W * dpr; acv.height = H * dpr; }
+  actx.setTransform(dpr, 0, 0, dpr, 0, 0); actx.clearRect(0, 0, W, H);
+  const L = 52, R = 10, Tp = 8, B = 26, pw = W - L - R, ph = H - Tp - B;
+  const tEnd = d.T.length ? d.T[d.T.length - 1] : 0, tStart = tEnd - winS, i0 = lowerBound(d.T, tStart);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = i0; i < d.T.length; i++) { const g = d.G[i]; if (g == null) continue; if (g < lo) lo = g; if (g > hi) hi = g; }
+  if (lo === Infinity) { lo = -45; hi = 45; }
+  const pad = Math.max(10, (hi - lo) * 0.1); lo -= pad; hi += pad;
+  const step = niceStep(hi - lo); lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const X = t => L + (t - tStart) / winS * pw, Y = v => Tp + (hi - v) / (hi - lo) * ph;
+  const bands = { f: css("--fwd-band"), r: css("--rev-band") };
+  let runStart = null, runS = null;
+  for (let i = i0; i <= d.T.length; i++) {
+    const s = i < d.T.length ? d.S[i] : null;
+    if (s !== runS) {
+      if (runS === "f" || runS === "r") { actx.fillStyle = bands[runS]; actx.fillRect(X(runStart), Tp, X(d.T[i - 1]) - X(runStart), ph); }
+      runS = s; runStart = i < d.T.length ? d.T[i] : null;
+    }
+  }
+  actx.strokeStyle = css("--grid"); actx.fillStyle = css("--muted"); actx.lineWidth = 1;
+  actx.font = "11px -apple-system, sans-serif"; actx.textAlign = "right"; actx.textBaseline = "middle";
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    const y = Math.round(Y(v)) + .5; actx.beginPath(); actx.moveTo(L, y); actx.lineTo(L + pw, y); actx.stroke();
+    actx.fillText(`${+v.toFixed(1)}°`, L - 6, y);
+  }
+  actx.textAlign = "center"; actx.textBaseline = "top";
+  const ts = winS <= 10 ? 1 : winS <= 30 ? 5 : 10;
+  for (let k = 0; k <= winS; k += ts) actx.fillText(k ? `−${k} s` : "now", X(tEnd - k), Tp + ph + 6);
+  actx.strokeStyle = css("--trace"); actx.lineWidth = 2; actx.lineJoin = "round"; actx.beginPath();
+  let first = true;
+  for (let i = i0; i < d.T.length; i++) {
+    const g = d.G[i]; if (g == null) continue;
+    if (first) { actx.moveTo(X(d.T[i]), Y(g)); first = false; } else actx.lineTo(X(d.T[i]), Y(g));
+  }
+  actx.stroke();
+  if (first) { actx.fillStyle = css("--muted"); actx.textAlign = "center"; actx.textBaseline = "middle";
+    actx.fillText("no pot readings", L + pw / 2, Tp + ph / 2); }
+}
+window.addEventListener("resize", () => { dirty = true; });
+connect(); requestAnimationFrame(draw);
+</script>
+</body>
+</html>

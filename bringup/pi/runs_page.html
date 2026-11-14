@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bench Runs</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --ink2: #4b5563; --muted: #8a94a3; --line: #e3e7ec;
+  --grid: #eef1f4; --trace: #2563eb; --fwd: #16a34a; --fwd-band: rgba(22,163,74,.10); --rev: #dc2626;
+  --rev-band: rgba(220,38,38,.10); --warn: #b45309; --ok: #15803d; --bad: #b91c1c; --btn: #eef1f5;
+  --row-off: #f1f3f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f25; --ink: #e8ebef; --ink2: #b4bcc7; --muted: #7c8696; --line: #2b323b;
+    --grid: #232a32; --trace: #60a5fa; --fwd: #4ade80; --fwd-band: rgba(74,222,128,.12); --rev: #f87171;
+    --rev-band: rgba(248,113,113,.12); --warn: #fbbf24; --ok: #4ade80; --bad: #f87171; --btn: #252c35;
+    --row-off: #15191e;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f25; --ink: #e8ebef; --ink2: #b4bcc7; --muted: #7c8696; --line: #2b323b;
+  --grid: #232a32; --trace: #60a5fa; --fwd: #4ade80; --fwd-band: rgba(74,222,128,.12); --rev: #f87171;
+  --rev-band: rgba(248,113,113,.12); --warn: #fbbf24; --ok: #4ade80; --bad: #f87171; --btn: #252c35;
+  --row-off: #15191e;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0 auto 0 0; }
+h2 { font-size: 15px; margin: 0 0 10px; }
+a { color: var(--trace); }
+nav.pages { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+nav.pages a { padding: 6px 14px; font-size: 14px; font-weight: 600; color: var(--ink2); text-decoration: none; background: var(--btn); }
+nav.pages a + a { border-left: 1px solid var(--line); }
+nav.pages a[aria-current="page"] { background: var(--ink); color: var(--panel); }
+.pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink2); }
+.pill.ok { color: var(--ok); border-color: currentColor; }
+.pill.bad { color: var(--bad); border-color: currentColor; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; align-items: start; }
+label { font-size: 12px; color: var(--ink2); display: grid; gap: 4px; }
+select, input[type=number], input[type=text] { font: inherit; padding: 7px 8px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--bg); color: var(--ink); width: 100%; min-width: 0; }
+button { font: inherit; color: var(--ink); background: var(--btn); border: 1px solid var(--line); border-radius: 8px;
+  cursor: pointer; padding: 6px 12px; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.chips button { padding: 3px 9px; font-size: 13px; border-radius: 6px; }
+.chips button.on { background: var(--ink); color: var(--panel); }
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.start { height: 48px; padding: 0 24px; font-size: 17px; font-weight: 600; }
+.start.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.stop { height: 48px; padding: 0 20px; font-size: 16px; font-weight: 700; border-width: 2px; }
+.note { font-size: 12px; color: var(--muted); }
+.err { color: var(--bad); font-size: 13px; }
+.live { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
+.stat .k { font-size: 12px; color: var(--muted); }
+.stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .v small { font-size: 12px; font-weight: 400; color: var(--ink2); }
+.state-fwd { color: var(--fwd); } .state-rev { color: var(--rev); }
+canvas { width: 100%; display: block; }
+#live-plot { height: 220px; } #detail-plot { height: 260px; } #detail-angle { height: 180px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--ink2); border-top: 0; white-space: nowrap; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.off td { background: var(--row-off); color: var(--muted); }
+tr.sel td { box-shadow: inset 0 0 0 9999px rgba(37,99,235,.08); }
+.dir-fwd { color: var(--fwd); font-weight: 600; } .dir-rev { color: var(--rev); font-weight: 600; }
+.head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.head h2 { margin: 0 auto 0 0; }
+.head select { width: auto; }
+.badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; }
+.badge.complete { color: var(--ok); } .badge.stopped { color: var(--warn); } .badge.running { color: var(--trace); }
+@media (max-width: 600px) {
+  .live { grid-template-columns: repeat(2, 1fr); }
+  #live-plot { height: 180px; } #detail-plot { height: 200px; } #detail-angle { height: 150px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Bench runs · wiper motor</h1>
+    <nav class="pages"><a href="/">Drive</a><a href="/runs" aria-current="page">Runs</a></nav>
+    <span id="conn" class="pill">connecting…</span>
+    <span id="thr" class="pill">power —</span>
+  </header>
+
+  <section class="panel">
+    <h2>New run</h2>
+    <div class="form">
+      <label>Motor<select id="f-motor"></select></label>
+      <label>Wipe condition<select id="f-cond"></select></label>
+      <label>Stroke time each way (s)<input id="f-stroke" type="number" min="0.5" max="30" step="0.5" value="5">
+        <span class="chips" id="c-stroke"></span></label>
+      <label>Cycles<input id="f-cycles" type="number" min="1" max="100" step="1" value="10">
+        <span class="chips" id="c-cycles"></span></label>
+      <label>Rest between cycles (s)<input id="f-pause" type="number" min="0" max="30" step="0.5" value="1"></label>
+      <label>Notes (optional)<input id="f-notes" type="text" maxlength="500" placeholder="e.g. new brush, wet viewport"></label>
+    </div>
+    <div class="actions">
+      <button class="start" id="b-start">Start run</button>
+      <button class="stop" id="b-stop">STOP</button>
+      <span class="err" id="f-err"></span>
+    </div>
+    <p class="note" id="f-limits">Keep this page open and in front during a run: hiding or closing it stops the motor.</p>
+  </section>
+
+  <section class="panel">
+    <div class="live">
+      <div class="stat"><div class="k">State</div><div class="v" id="l-state">—</div></div>
+      <div class="stat"><div class="k">Cycle</div><div class="v" id="l-cycle">—</div></div>
+      <div class="stat"><div class="k">Current now</div><div class="v"><span id="l-now">—</span> <small>mA</small></div></div>
+      <div class="stat"><div class="k">Peak this stroke</div><div class="v"><span id="l-peak">—</span> <small>mA</small></div></div>
+      <div class="stat"><div class="k">Shaft angle (0–360)</div><div class="v"><span id="l-ang">—</span> <small>°</small></div></div>
+    </div>
+    <canvas id="live-plot"></canvas>
+    <p class="note" id="l-last">Live current, last 10 s. Green band = forward, red = reverse, dashed = stall cut-off.</p>
+  </section>
+
+  <section class="panel">
+    <div class="head">
+      <h2>Summary across included runs</h2>
+      <label style="display:flex;align-items:center;gap:6px">Statistic of
+        <select id="s-metric"></select></label>
+    </div>
+    <div class="tablewrap"><table id="s-table"></table></div>
+    <p class="note">Only complete strokes count (a stroke cut short by Stop, a stall or lost contact is left out).
+      Untick a run below to leave it out. Energy assumes 5.0 V (no +5V divider fitted).</p>
+  </section>
+
+  <section class="panel">
+    <div class="head">
+      <h2>Saved runs</h2>
+      <select id="r-motor"><option value="">All motors</option></select>
+      <select id="r-cond"><option value="">All conditions</option></select>
+    </div>
+    <div class="tablewrap"><table id="r-table"></table></div>
+  </section>
+
+  <section class="panel" id="detail" hidden>
+    <div class="head"><h2 id="d-title">Run</h2><a id="d-csv" href="#">Download samples.csv</a></div>
+    <p class="note" id="d-meta"></p>
+    <canvas id="detail-plot"></canvas>
+    <canvas id="detail-angle"></canvas>
+    <p class="note">Top: motor current. Bottom: shaft angle from the pot (degrees). Hover for values. Time is seconds
+      from the start of the run.</p>
+    <div class="tablewrap"><table id="d-table"></table></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const mA = a => { const v = Math.round(a * 1000); return String(v === 0 ? 0 : v); };
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const api = (path, body) => fetch(path, body === undefined ? {} : {
+  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+
+// ---------- plot (one function for the live view and a saved run) ----------
+function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < x) lo = m + 1; else hi = m; } return lo; }
+function niceStep(range) { const raw = range / 5, p = Math.pow(10, Math.floor(Math.log10(raw))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= raw) return m * p; return 10 * p; }
+function makePlot(cv, opts) {
+  const ctx = cv.getContext("2d");
+  const p = { data: { T: [], A: [], S: [] }, stallMa: null, hover: null, dirty: true };
+  cv.addEventListener("mousemove", e => { p.hover = e.clientX - cv.getBoundingClientRect().left; p.dirty = true; });
+  cv.addEventListener("mouseleave", () => { p.hover = null; p.dirty = true; });
+  window.addEventListener("resize", () => { p.dirty = true; });
+  p.draw = () => {
+    if (!p.dirty) return; p.dirty = false;
+    const d = p.data, dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    const L = 52, R = 10, Tp = 8, B = 26, pw = W - L - R, ph = H - Tp - B;
+    let tStart, tEnd;
+    if (opts.live) { tEnd = d.T.length ? d.T[d.T.length - 1] : 0; tStart = tEnd - opts.live; }
+    else { tStart = d.T.length ? d.T[0] : 0; tEnd = d.T.length ? Math.max(d.T[d.T.length - 1], tStart + 1) : 1; }
+    const span = tEnd - tStart, i0 = lowerBound(d.T, tStart);
+    const val = opts.angle ? (i => d.G ? d.G[i] : null) : (i => d.A[i] * 1000), unit = opts.angle ? "°" : " mA";
+    let lo = 0, hi = 300;
+    if (opts.angle) {
+      lo = Infinity; hi = -Infinity;
+      for (let i = i0; i < d.T.length; i++) { const v = val(i); if (v == null) continue; if (v > hi) hi = v; if (v < lo) lo = v; }
+      if (lo === Infinity) { lo = -45; hi = 45; }
+      const pad = Math.max(10, (hi - lo) * 0.1); lo -= pad; hi += pad;
+    } else {
+      for (let i = i0; i < d.T.length; i++) { const v = val(i); if (v > hi) hi = v; if (v < lo) lo = v; }
+      if (p.stallMa) hi = Math.max(hi, p.stallMa);
+      hi *= 1.08; lo = lo < -5 ? lo * 1.2 : 0;
+    }
+    const step = niceStep(hi - lo); hi = Math.ceil(hi / step) * step; lo = Math.floor(lo / step) * step;
+    const X = t => L + (t - tStart) / span * pw, Y = v => Tp + (hi - v) / (hi - lo) * ph;
+    const bands = { f: css("--fwd-band"), r: css("--rev-band") };
+    let runStart = null, runS = null;
+    for (let i = i0; i <= d.T.length; i++) {
+      const s = i < d.T.length ? d.S[i] : null;
+      if (s !== runS) {
+        if (runS === "f" || runS === "r") { ctx.fillStyle = bands[runS]; ctx.fillRect(X(runStart), Tp, X(d.T[i - 1]) - X(runStart), ph); }
+        runS = s; runStart = i < d.T.length ? d.T[i] : null;
+      }
+    }
+    ctx.strokeStyle = css("--grid"); ctx.fillStyle = css("--muted"); ctx.lineWidth = 1;
+    ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (let v = lo; v <= hi + 1e-9; v += step) {
+      const y = Math.round(Y(v)) + .5; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + pw, y); ctx.stroke();
+      ctx.fillText(v.toFixed(step < 1 ? 1 : 0) + (opts.angle ? "°" : ""), L - 6, y);
+    }
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    const ts = niceStep(span);
+    if (opts.live) { for (let k = 0; k <= span + 1e-9; k += ts) ctx.fillText(k ? `−${k} s` : "now", X(tEnd - k), Tp + ph + 6); }
+    else { for (let k = 0; k <= span + 1e-9; k += ts) ctx.fillText(`${+(k).toFixed(1)} s`, X(tStart + k), Tp + ph + 6); }
+    if (!opts.angle && p.stallMa && p.stallMa <= hi) {
+      ctx.strokeStyle = css("--warn"); ctx.setLineDash([5, 4]); ctx.beginPath();
+      ctx.moveTo(L, Y(p.stallMa)); ctx.lineTo(L + pw, Y(p.stallMa)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = css("--warn"); ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+      ctx.fillText(`stall cut-off ${p.stallMa.toFixed(0)} mA`, L + 4, Y(p.stallMa) - 2);
+    }
+    ctx.strokeStyle = css("--trace"); ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
+    let col = null, mn = 0, mx = 0, first = true;
+    const flush = () => { if (col === null) return; const x = L + col + .5;
+      if (first) { ctx.moveTo(x, Y(mx)); first = false; } else ctx.lineTo(x, Y(mx)); ctx.lineTo(x, Y(mn)); };
+    for (let i = i0; i < d.T.length; i++) {
+      const v = val(i); if (v == null) continue;
+      const c = Math.floor(X(d.T[i]) - L);
+      if (c !== col) { flush(); col = c; mn = mx = v; } else { if (v < mn) mn = v; if (v > mx) mx = v; }
+    }
+    flush(); ctx.stroke();
+    if (p.hover !== null && p.hover >= L && p.hover <= L + pw && d.T.length) {
+      const t = tStart + (p.hover - L) / pw * span;
+      let i = Math.min(d.T.length - 1, lowerBound(d.T, t));
+      while (i > 0 && val(i) == null) i--;
+      const x = X(d.T[i]), v = val(i) ?? 0;
+      ctx.strokeStyle = css("--muted"); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, Tp); ctx.lineTo(x, Tp + ph); ctx.stroke();
+      ctx.fillStyle = css("--trace"); ctx.beginPath(); ctx.arc(x, Y(v), 4, 0, 7); ctx.fill();
+      const when = opts.live ? `${(d.T[i] - tEnd).toFixed(2)} s` : `${(d.T[i] - tStart).toFixed(2)} s`;
+      const label = `${when} · ${v.toFixed(opts.angle ? 1 : 0)}${unit} · ${{ a: "stopped", f: "forward", r: "reverse", b: "braking" }[d.S[i]]}`;
+      ctx.font = "12px -apple-system, sans-serif"; const w = ctx.measureText(label).width + 12;
+      const bx = Math.min(Math.max(x - w / 2, L), L + pw - w);
+      ctx.fillStyle = css("--panel"); ctx.strokeStyle = css("--line"); ctx.fillRect(bx, Tp + 2, w, 20); ctx.strokeRect(bx, Tp + 2, w, 20);
+      ctx.fillStyle = css("--ink"); ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(label, bx + 6, Tp + 12);
+    }
+  };
+  return p;
+}
+const livePlot = makePlot($("live-plot"), { live: 10 });
+const detailPlot = makePlot($("detail-plot"), {});
+const detailAngle = makePlot($("detail-angle"), { angle: true });
+(function frame() { livePlot.draw(); detailPlot.draw(); detailAngle.draw(); requestAnimationFrame(frame); })();
+
+// ---------- form ----------
+let options = { motors: [], conditions: [] };
+function chips(el, input, values, unit) {
+  el.innerHTML = values.map(v => `<button type="button" data-v="${v}">${v}${unit}</button>`).join("");
+  const sync = () => { for (const b of el.children) b.classList.toggle("on", b.dataset.v === input.value); };
+  for (const b of el.children) b.addEventListener("click", () => { input.value = b.dataset.v; sync(); });
+  input.addEventListener("input", sync); sync();
+}
+chips($("c-stroke"), $("f-stroke"), [1, 2, 5, 10, 20], " s");
+chips($("c-cycles"), $("f-cycles"), [1, 5, 10, 20], "");
+const opt = v => `<option value="${esc(v)}">${esc(v)}</option>`;
+async function loadOptions() {
+  options = await api("/api/options");
+  $("f-motor").innerHTML = options.motors.map(opt).join("");
+  $("f-cond").innerHTML = options.conditions.map(opt).join("");
+  $("r-motor").innerHTML = `<option value="">All motors</option>` + options.motors.map(opt).join("");
+  $("r-cond").innerHTML = `<option value="">All conditions</option>` + options.conditions.map(opt).join("");
+}
+
+// ---------- run control + heartbeat ----------
+let runOn = false, hbTimer = null, startedAt = 0, myRun = null;
+const post = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body || {}) }).catch(() => {});
+function setRun(on) {
+  runOn = on; $("b-start").classList.toggle("on", on); $("b-start").textContent = on ? "Running…" : "Start run";
+  $("b-start").disabled = on;
+  if (on && !hbTimer) hbTimer = setInterval(() => post("/hb"), 200);
+  if (!on && hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+}
+function stopAll() { setRun(false); post("/cmd", { action: "stop" }); }
+$("b-start").addEventListener("click", async () => {
+  $("f-err").textContent = "";
+  try {
+    startedAt = performance.now(); setRun(true);
+    const r = await api("/api/run/start", { motor: $("f-motor").value, condition: $("f-cond").value,
+      stroke_s: +$("f-stroke").value, cycles: +$("f-cycles").value, pause_s: +$("f-pause").value, notes: $("f-notes").value });
+    myRun = r.id; loadRuns();
+  } catch (e) { setRun(false); $("f-err").textContent = e.message; }
+});
+$("b-stop").addEventListener("click", stopAll);
+document.addEventListener("keydown", e => { if (e.key === "Escape") stopAll(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && runOn) stopAll(); });
+window.addEventListener("pagehide", () => { if (runOn) stopAll(); });
+
+// ---------- live stream ----------
+const T = [], A = [], S = [];
+let status = null, wasRunning = false;
+const STATE_NAME = { asleep: "Stopped", fwd: "Forward", rev: "Reverse", brake: "Braking" };
+function connect() {
+  const es = new EventSource("/stream");
+  es.onopen = () => { $("conn").textContent = "connected"; $("conn").className = "pill ok"; };
+  es.onerror = () => { $("conn").textContent = "lost: motor stops on its own"; $("conn").className = "pill bad"; };
+  es.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    for (let i = 0; i < m.t.length; i++) { T.push(m.t[i]); A.push(m.a[i]); S.push(m.s[i]); }
+    const cut = T.length ? T[T.length - 1] - 15 : 0;
+    let k = 0; while (k < T.length && T[k] < cut) k++;
+    if (k) { T.splice(0, k); A.splice(0, k); S.splice(0, k); }
+    status = m.status; renderLive();
+    livePlot.data = { T, A, S }; livePlot.stallMa = status.settings.stall_amps * 1000; livePlot.dirty = true;
+  };
+}
+function renderLive() {
+  const st = status;
+  if (st.fault || st.tick_age_s > 1) {
+    $("conn").textContent = st.fault ? "Pi controller stopped: restart jog_server" : "Pi controller not responding";
+    $("conn").className = "pill bad";
+  } else if ($("conn").textContent !== "connected") { $("conn").textContent = "connected"; $("conn").className = "pill ok"; }
+  const thr = st.throttled;
+  $("thr").textContent = thr == null ? "power —" : thr === "0x0" ? "power OK (0x0)" : "power warning " + thr;
+  $("thr").className = "pill " + (thr === "0x0" ? "ok" : thr ? "bad" : "");
+  $("l-state").textContent = st.cycle && st.cycle.stage === "pause" ? "Resting" : (STATE_NAME[st.state] || st.state);
+  $("l-state").className = "v" + (st.state === "fwd" ? " state-fwd" : st.state === "rev" ? " state-rev" : "");
+  $("l-cycle").textContent = st.cycle ? `${st.cycle.i} / ${st.cycle.n}` : "—";
+  const n = Math.min(86, A.length);
+  if (n) { let s = 0; for (let i = A.length - n; i < A.length; i++) s += A[i]; $("l-now").textContent = mA(s / n); }
+  $("l-peak").textContent = st.peak_a ? mA(st.peak_a) : "—";
+  $("l-ang").textContent = st.angle == null ? "—" : (((st.angle % 360) + 360) % 360).toFixed(1);
+  $("f-limits").textContent = `Stall cut-off ${st.settings.stall_amps} A for ${st.settings.stall_ms} ms (change it on the Drive page). ` +
+    "Keep this page open and in front during a run: hiding or closing it stops the motor.";
+  const running = !!st.run_id;
+  if (wasRunning && !running) {          // a run just ended: show how, refresh the lists
+    const r = st.last_result;
+    if (r) $("l-last").textContent = `Last run: ${r.complete ? "complete" : "stopped"}, ${r.cycles_done}/${r.cycles} cycles${r.complete ? "" : " (" + r.reason + ")"}.`;
+    loadRuns(); if (myRun) { showRun(myRun); myRun = null; }
+  }
+  if (runOn && !running && performance.now() - startedAt > 1500) setRun(false);
+  $("b-start").disabled = runOn || running || st.state !== "asleep";
+  wasRunning = running;
+}
+
+// ---------- saved runs + summary ----------
+let runs = [], selected = null;
+const fmt = (v, d = 0) => v == null ? "—" : (+v).toFixed(d);
+const dirCell = d => d === "cycle" ? "full cycle" : `<span class="dir-${d}">${d === "fwd" ? "forward" : "reverse"}</span>`;
+function localTime(iso) { const t = new Date(iso); return t.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+async function loadRuns() {
+  [runs] = await Promise.all([api("/api/runs"), loadSummary()]);
+  renderRuns();
+}
+function renderRuns() {
+  const fm = $("r-motor").value, fc = $("r-cond").value;
+  const rows = runs.filter(r => (!fm || r.motor === fm) && (!fc || r.condition === fc));
+  const h = r => r.headline || {};
+  $("r-table").innerHTML = `<tr><th>Include</th><th>Started</th><th>Motor</th><th>Condition</th><th class="num">Stroke</th>
+    <th class="num">Cycles</th><th>Result</th><th class="num">Fwd median</th><th class="num">Rev median</th>
+    <th class="num">Energy / cycle</th><th></th></tr>` + (rows.length ? rows.map(r => `
+    <tr class="${r.excluded ? "off" : ""} ${r.id === selected ? "sel" : ""}">
+      <td><input type="checkbox" data-inc="${esc(r.id)}" ${r.excluded ? "" : "checked"} ${r.status === "running" ? "disabled" : ""}
+        aria-label="include ${esc(r.id)} in stats"></td>
+      <td>${esc(localTime(r.started))}</td><td>${esc(r.motor)}</td><td>${esc(r.condition)}${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ""}</td>
+      <td class="num">${fmt(r.stroke_s, 1)} s</td><td class="num">${r.cycles_done ?? "—"} / ${r.cycles}</td>
+      <td><span class="badge ${esc(r.status)}">${esc(r.status)}</span>${r.ended_reason && r.status !== "complete" ? `<div class="note">${esc(r.ended_reason)}</div>` : ""}</td>
+      <td class="num">${fmt(h(r).fwd?.median_ma?.median)} mA</td><td class="num">${fmt(h(r).rev?.median_ma?.median)} mA</td>
+      <td class="num">${fmt(h(r).cycle_energy_j?.median, 2)} J</td>
+      <td><button data-view="${esc(r.id)}">View</button></td></tr>`).join("")
+    : `<tr><td colspan="11" class="note">No runs yet.</td></tr>`);
+  for (const cb of $("r-table").querySelectorAll("[data-inc]")) cb.addEventListener("change", async () => {
+    cb.disabled = true;
+    try { await api(`/api/runs/${encodeURIComponent(cb.dataset.inc)}/include`, { include: cb.checked }); }
+    catch (e) { cb.checked = !cb.checked; alert("Could not save: " + e.message); }
+    await loadRuns();
+  });
+  for (const b of $("r-table").querySelectorAll("[data-view]")) b.addEventListener("click", () => showRun(b.dataset.view));
+}
+$("r-motor").addEventListener("change", renderRuns);
+$("r-cond").addEventListener("change", renderRuns);
+
+const METRICS = [["median_ma", "Median current (mA, after inrush)", 0], ["mean_ma", "Mean current (mA)", 0],
+  ["p99_ma", "p99 current (mA, after inrush)", 0], ["peak_ma", "Peak current incl. inrush (mA)", 0], ["energy_j", "Energy (J)", 3],
+  ["sweep_deg", "Sweep per stroke (deg)", 1], ["speed_dps", "Mean speed (deg/s)", 0]];
+$("s-metric").innerHTML = METRICS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+$("s-metric").addEventListener("change", renderSummary);
+let summary = [];
+async function loadSummary() { summary = await api("/api/summary"); renderSummary(); }
+function renderSummary() {
+  const key = $("s-metric").value, [, , dp] = METRICS.find(m => m[0] === key);
+  const rows = summary.filter(r => r.dir !== "cycle" || key === "energy_j");
+  $("s-table").innerHTML = `<tr><th>Motor</th><th>Condition</th><th class="num">Stroke</th><th>Direction</th>
+    <th class="num">Runs</th><th class="num">Strokes</th><th class="num">Median</th><th class="num">Mean</th>
+    <th class="num">Max</th><th class="num">Min</th></tr>` + (rows.length ? rows.map(r => {
+      const s = r[key];
+      return `<tr><td>${esc(r.motor)}</td><td>${esc(r.condition)}</td><td class="num">${fmt(r.stroke_s, 1)} s</td>
+        <td>${dirCell(r.dir)}</td><td class="num">${r.runs}${r.stopped_runs ? ` <span class="note">(${r.stopped_runs} stopped)</span>` : ""}</td>
+        <td class="num">${r.n}</td><td class="num">${fmt(s?.median, dp)}</td><td class="num">${fmt(s?.mean, dp)}</td>
+        <td class="num">${fmt(s?.max, dp)}</td><td class="num">${fmt(s?.min, dp)}</td></tr>`;
+    }).join("") : `<tr><td colspan="10" class="note">No included runs yet.</td></tr>`);
+}
+
+async function showRun(id) {
+  selected = id; renderRuns();
+  const [run, tr] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}`), api(`/api/runs/${encodeURIComponent(id)}/trace`)]);
+  const m = run.meta, s = run.summary;
+  $("detail").hidden = false;
+  $("d-title").textContent = `${m.motor} · ${m.condition}`;
+  $("d-csv").href = `/api/runs/${encodeURIComponent(id)}/samples.csv`;
+  $("d-meta").textContent = `${localTime(m.started)} · ${m.stroke_s} s each way · ${m.cycles_done ?? "—"}/${m.cycles} cycles · ` +
+    `rest ${m.pause_s} s · stall cut-off ${m.settings.stall_amps} A / ${m.settings.stall_ms} ms · ADC ±${m.fsr} V · ` +
+    `status ${m.status}${m.ended_reason && m.status !== "complete" ? " (" + m.ended_reason + ")" : ""}` +
+    `${m.notes ? " · notes: " + m.notes : ""} · code ${m.source_sha} · id ${m.id}`;
+  detailPlot.data = { T: tr.t, A: tr.a, S: tr.s }; detailPlot.stallMa = m.settings.stall_amps * 1000; detailPlot.dirty = true;
+  detailAngle.data = { T: tr.t, A: tr.a, S: tr.s, G: tr.g || [] }; detailAngle.dirty = true;
+  const strokes = s ? s.strokes : [];
+  $("d-table").innerHTML = `<tr><th class="num">Cycle</th><th>Direction</th><th class="num">Time</th><th>Complete</th>
+    <th class="num">Median mA</th><th class="num">Mean mA</th><th class="num">p99 mA</th><th class="num">Peak mA</th>
+    <th class="num">Energy J</th><th class="num">Sweep °</th><th class="num">Speed °/s</th><th class="num">Clipped</th></tr>` + (strokes.length ? strokes.map(x => `
+    <tr class="${x.complete ? "" : "off"}"><td class="num">${x.cycle ?? "—"}</td><td>${dirCell(x.dir)}</td>
+    <td class="num">${fmt(x.duration_s, 2)} s</td><td>${x.complete ? "yes" : "no"}</td><td class="num">${fmt(x.median_ma)}</td>
+    <td class="num">${fmt(x.mean_ma)}</td><td class="num">${fmt(x.p99_ma)}</td><td class="num">${fmt(x.peak_ma)}</td>
+    <td class="num">${fmt(x.energy_j, 3)}</td><td class="num">${fmt(x.sweep_deg, 1)}</td><td class="num">${fmt(x.speed_dps)}</td>
+    <td class="num">${x.clipped}</td></tr>`).join("")
+    : `<tr><td colspan="12" class="note">${m.status === "running" ? "Run in progress." : "No strokes logged."}</td></tr>`);
+  $("detail").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+loadOptions().then(loadRuns).catch(e => { $("f-err").textContent = "Could not load: " + e.message; });
+connect();
+</script>
+</body>
+</html>
