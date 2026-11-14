@@ -143,6 +143,36 @@ class TestAdsEncoding(unittest.TestCase):
         self.assertAlmostEqual(hw.raw_to_volts(0xFFFF, 1.024), -1.024 / 32768)
 
 
+class StaleADSDev:
+    """ADS1115 on I2C, just coming out of continuous AIN0: OS reads 1 at once and the Conversion register holds
+    the last AIN0 result until one conversion time after the single-shot config write."""
+
+    def __init__(self, rate, old_raw, new_raw):
+        import time as _t
+        self._t, self.rate, self.old_raw, self.new_raw = _t, rate, old_raw, new_raw
+        self.written_at, self.ptr = None, 0
+
+    def write(self, data):
+        self.ptr = data[0]
+        if len(data) == 3 and data[0] == hw.REG_CONFIG:
+            self.written_at = self._t.monotonic()
+
+    def read(self, n):
+        if self.ptr == hw.REG_CONFIG:
+            return [0x80, 0x00]  # OS = 1
+        done = self._t.monotonic() - self.written_at >= 1.0 / self.rate
+        raw = self.new_raw if done else self.old_raw
+        return [raw >> 8, raw & 0xFF]
+
+
+class TestSingleShotAfterContinuous(unittest.TestCase):
+    def test_waits_for_the_new_conversion(self):
+        # VISEN 36.6 mV at +-1.024 V (raw 1171) must not come back as a 0.146 V pot reading
+        dev = StaleADSDev(860, old_raw=1171, new_raw=int(3.26 / 4.096 * 32768))
+        raw, v = hw.ADS1115(dev, fsr=1.024, rate=860).single_shot(2, 4.096)
+        self.assertAlmostEqual(v, 3.26, delta=0.001)
+
+
 class TestScale(unittest.TestCase):
     def test_visen_scale_2k(self):
         self.assertAlmostEqual(wa.visen_to_amps(0.2), 1.0)
