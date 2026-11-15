@@ -766,6 +766,16 @@ class TestJog(unittest.TestCase):
         with self.assertRaises(ValueError):
             ctrl.request_move("step", 5, method="pid")
 
+    def test_slow_strokes_do_not_teach_the_lead(self):
+        ctrl = self._mover(vps=0.5)  # ~49 deg/s: below LEARN_MIN_DPS
+        ctrl.request_move("step", 30, duty=1.0)
+        self._run_for(ctrl, 4.0)
+        self.assertEqual(ctrl.lead_s, jog_server.LEAD_S)
+        fast = self._mover(vps=2.0)  # ~197 deg/s: learns
+        fast.request_move("step", 60, duty=1.0)
+        self._run_for(fast, 3.0)
+        self.assertNotEqual(fast.lead_s, jog_server.LEAD_S)
+
     def test_no_drive_current_guard(self):
         ctrl = self._mover()
         dead = lambda pin, duty, freq=None: self.gpio.output(pin, 0)  # PWM that drives nothing (11/15 bug)

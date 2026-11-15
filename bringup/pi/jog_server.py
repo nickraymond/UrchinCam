@@ -53,6 +53,8 @@ MOVE_POT_EVERY = 2
 DUTY = (0.05, 1.0)
 LEAD_S = 0.04  # start: brake this long before the target at the current speed (pot latency + braking);
 LEAD_S_RANGE = (0.0, 0.15)  # learned from each landing's overshoot (lead += overshoot / speed / 2)
+LEARN_MIN_DPS = 100.0  # only strokes braked at least this fast teach the lead; slow corrections inflated it (11/15)
+CORR_LEAD_S = 0.02  # fixed lead for corrections
 SETTLE_S = 0.15  # wait after the brake before judging where the shaft stopped
 TOL_DEG = 0.75  # a step or go-to within this is done; outside it, a slow correction move
 CORR_DUTY = 0.75  # speed cap for corrections: the seal needs 75-100 % to turn (Nick, cam02 11/15; 0.3 and 0.5 stalled)
@@ -351,7 +353,7 @@ class JogController:
             self.seq += 1
             row = {"seq": self.seq, "t_s": t, "state": self.state, "amps": s["amps"], "visen_v": s["visen_v"],
                    "raw": s["raw"], "clipped": s["clipped"], "cycle": self.cycle_i if self.run else None,
-                   "pot_v": pot_v, "angle": self.angle}
+                   "pot_v": pot_v, "angle": self.angle, "pot_ok": None if pot_v is None else int(self.pot.ok)}
             self.buf.append(row)
             if self.run is not None:
                 self.run.push(row)
@@ -450,7 +452,7 @@ class JogController:
                     m["bump_t"] = now
                     self._set_duty(min(1.0, self.duty + APPROACH_BUMP))
                 key = (sign, self._region(m["target"]))
-                lead = self.leads.get(key, LEAD_S) if approach else self.lead_s
+                lead = (self.leads.get(key, LEAD_S) if approach else self.lead_s) if m["tries"] == 0 else CORR_LEAD_S
                 if remaining <= speed * lead:
                     m["stop_speed"], m["stop_sign"], m["lead_key"] = speed, sign, key if approach else None
                     self.want = "stop"
@@ -472,7 +474,7 @@ class JogController:
             return
         err = self.angle - m["target"]
         stop_speed = m.pop("stop_speed", 0)
-        if stop_speed > 20 and self.pot.ok:  # learn the lead: overshoot (+) means brake earlier next time
+        if stop_speed >= LEARN_MIN_DPS and m["tries"] == 0 and self.pot.ok:  # overshoot (+): brake earlier next time
             over = err * m.pop("stop_sign")
             key = m.pop("lead_key", None)
             old = self.leads.get(key, LEAD_S) if key else self.lead_s
@@ -612,7 +614,7 @@ def throttled():
 
 
 class Recorder:
-    FIELDS = ["t_s", "state", "amps", "visen_v", "raw", "clipped", "pot_v", "angle"]
+    FIELDS = ["t_s", "state", "amps", "visen_v", "raw", "clipped", "pot_v", "angle", "pot_ok"]
 
     def __init__(self, run_dir):
         self.path = os.path.join(run_dir, "samples.csv")
