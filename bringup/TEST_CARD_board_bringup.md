@@ -116,7 +116,7 @@ twisted pair, R+/R− as the other (RJ45 pins 1/2 and 3/6), to a switch with DHC
 |---|---|---|---|
 | 5.1 | `lsusb` | a new device **0bda:8152** (Realtek; the ID the Linux `r8152` driver matches, kernel `drivers/net/usb/r8152.c`) | PASS 11/15 3:21 PM: 0bda:8152 on USB (`~/NereusData/UrchinCam/2026-11-15_eth/eth_check_232112.txt`) |
 | 5.2 | `dmesg`, driver of the new interface | bound to **r8152**, no errors | PASS: eth0 bound to r8152 |
-| 5.3 | Link | `operstate` up, speed **100** Mb/s, full duplex | PASS: link up 100 Mb/s full. Earlier checks up to 3:18 PM had no carrier; it came up after Nick reworked the J2 harness to the Blue Robotics RJ45 adapter (whose GH pinout differs from J2; what he changed is not recorded) |
+| 5.3 | Link | `operstate` up, speed **100** Mb/s, full duplex | PASS: link up 100 Mb/s full. Earlier checks up to 3:18 PM had no carrier; it came up after Nick re-pinned the GH connector to the Blue Robotics RJ45 adapter (its GH pinout differs from J2): J2.1→adapter 1 (TX+), J2.2→4 (TX−), J2.3→2 (RX+), J2.4→3 (RX−). Nick, builder chat 11/15: "I reworked the pins on the GH connector per your instructions and that fixed it." |
 | 5.4 | DHCP | an IPv4 address on the new interface within 30 s | PASS: 192.168.1.238/24 |
 | 5.5 | `ping -I <if>` the gateway, 100 pings | 0 % loss | PASS: 100 pings to 192.168.1.1, 0 % loss |
 | 5.6 | Throughput, 30 s each way (`iperf3` if it's on both ends; installing it is Nick's call) | ≥ 80 Mb/s each way | PASS: Pi→Mac 90, Mac→Pi 94 Mb/s (iperf3; the Mac on Wi-Fi) |
