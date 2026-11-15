@@ -2,6 +2,7 @@
     python3 -m unittest discover -s bringup/tests -v
 """
 
+import csv
 import json
 import os
 import sys
@@ -906,6 +907,30 @@ class TestPot(unittest.TestCase):
         dps = (driven[-1]["angle"] - driven[0]["angle"]) / (driven[-1]["t_s"] - driven[0]["t_s"])
         self.assertAlmostEqual(dps, 0.5 * 98.3, delta=3)
         self.assertEqual(ctrl.status()["pot_errors"], 0)
+
+
+class TestLoopStats(unittest.TestCase):
+    def test_names_the_cause_of_a_pause(self):
+        ls = jog_server.LoopStats()
+        ls.record(1.0, 0.003, (0.001, 0.0, 0.0), 0.0, 0.0, 0.001, 0.001, 3)  # a normal step: not kept
+        ls.record(2.0, 0.040, (0.001, 0.0, 0.0), 0.0, 0.030, 0.001, 0.001, 3)  # garbage collection
+        ls.record(3.0, 0.030, (0.026, 0.0, 0.0), 0.0, 0.0, 0.001, 0.001, 3)  # slow ADC / I2C
+        ls.record(4.0, 0.025, (0.001, 0.0, 0.0), 0.0, 0.0, 0.001, 0.022, 5)  # woke late (other threads / OS)
+        s = ls.summary()
+        self.assertEqual((s["steps"], s["stalls"]), (4, 3))
+        self.assertEqual([x["cause"] for x in ls.stalls], ["gc", "adc", "late_wake"])
+        self.assertEqual(s["max_gap_ms"], 40.0)
+
+    def test_recorder_writes_off_thread(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec = jog_server.Recorder(d)
+            for i in range(50):
+                rec.write({"t_s": i / 860, "state": "fwd", "amps": 0.3, "visen_v": 0.06, "raw": 1900, "clipped": False,
+                           "pot_v": 1.2 if i % 2 else None, "angle": 40.0, "pot_ok": 1})
+            rec.close()
+            rows = list(csv.DictReader(open(rec.path)))
+        self.assertEqual(len(rows), 50)
+        self.assertEqual(rows[1]["pot_v"], "1.20000")
 
 
 class TestBenchRuns(unittest.TestCase):

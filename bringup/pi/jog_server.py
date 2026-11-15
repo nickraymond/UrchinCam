@@ -21,8 +21,10 @@ import argparse
 import collections
 import csv
 import datetime
+import gc
 import json
 import os
+import queue
 import statistics
 import subprocess
 import sys
@@ -69,6 +71,7 @@ FULL_SPEED_DPS = 300.0  # rough full-speed shaft speed (cam02 11/13: ~325 deg/s)
 # that's ~0.4 deg of travel between angle readings instead of ~3 deg (pot read every 2nd sample, ~10 ms apart,
 # cam02 11/15). The current in between is held from the last read (stall cut-off, energy).
 FAST_CUR_EVERY = 8
+STALL_S = 0.015  # a control-loop step later than this is logged with what took the time (Jog page, /api/loop)
 # Move methods. "simple": drive at the set speed, brake one learned lead before the target (lead_s).
 # "approach": drive at the set speed until APPROACH_DEG out, then APPROACH_DUTY (raised by APPROACH_BUMP every
 # BUMP_EVERY_S while slower than SPEED_FLOOR_DPS, e.g. on the brush's raised surface), and brake with a lead learned
@@ -141,6 +144,8 @@ class JogController:
         self.prev_t = None
         self.nocur_since = None
         self.pwm_reset_done = False
+        self.tick_parts = (0.0, 0.0, 0.0)
+        self.loop = LoopStats()
         self.fast = False  # ADC streaming the pot (moves) instead of the current
         self.fast_k = 0
         self.last_cur = None
@@ -318,6 +323,7 @@ class JogController:
             elif self.state == "asleep":
                 self.sampler.zero_key = "sleep"
             self.last_tick = now
+            p0 = time.perf_counter()
             try:
                 s, fast_pot_v = self._sample()  # brake keeps the zero of the stroke before it
             except OSError as e:  # cam02 sees rare I2C errors (11/12, 11/13); skip the sample, don't die
@@ -354,10 +360,13 @@ class JogController:
                 self.move["energy_j"] += max(s["amps"], 0.0) * br.VBUS_NOMINAL * (now - self.prev_t)  # 5 V assumed, no divider
                 self.move["peak_a"] = max(self.move["peak_a"], s["amps"])
             self.prev_t = now
+            p1 = time.perf_counter()
             pot_v = self._read_pot(fast_pot_v, now)
             if pot_v is not None:
                 self.pot_hist.append((now, self.angle))
+            p2 = time.perf_counter()
             self._move_step(now, pot_v is not None)
+            self.tick_parts = (p1 - p0, p2 - p1, time.perf_counter() - p2)  # ADC sample, pot, move logic (s)
             self.seq += 1
             row = {"seq": self.seq, "t_s": t, "state": self.state, "amps": s["amps"], "visen_v": s["visen_v"],
                    "raw": s["raw"], "clipped": s["clipped"], "cycle": self.cycle_i if self.run else None,
@@ -608,6 +617,7 @@ class JogController:
                     "pot_ok": self.pot.ok if self.pot else None, "room": self.pot.room_deg() if self.pot else None,
                     "lead_s": round(self.lead_s, 3),
                     "leads": {f"{'+' if k[0] > 0 else '-'}{k[1]}": round(v, 3) for k, v in self.leads.items()},
+                    "loop": self.loop.summary(),
                     "move_log": list(self.move_log)[-12:], "method": self.move_method,
                     "zero_mv": {k: round(v * 1000, 3) for k, v in self.sampler.zero_v.items()}}
 
@@ -658,7 +668,48 @@ def throttled():
         return None
 
 
+class LoopStats:
+    """Control-loop timing: every step later than STALL_S is kept with where the time went, so pauses have a cause.
+    Python's garbage collector is timed through gc.callbacks."""
+
+    def __init__(self):
+        self.stalls = collections.deque(maxlen=200)
+        self.n_steps = self.n_stalls = 0
+        self.max_gap = 0.0
+        self.gc_s = 0.0  # running total of time spent in garbage collection
+        self._gc_t0 = None
+        gc.callbacks.append(self._gc)
+
+    def _gc(self, phase, info):
+        if phase == "start":
+            self._gc_t0 = time.perf_counter()
+        elif self._gc_t0 is not None:
+            self.gc_s += time.perf_counter() - self._gc_t0
+            self._gc_t0 = None
+
+    def record(self, t_s, gap, parts, write_s, gc_s, sleep_plan, sleep_got, threads):
+        self.n_steps += 1
+        self.max_gap = max(self.max_gap, gap)
+        if gap <= STALL_S:
+            return
+        self.n_stalls += 1
+        late = max(0.0, sleep_got - sleep_plan)
+        named = {"adc": parts[0], "pot": parts[1], "move": parts[2], "log": write_s, "gc": gc_s,
+                 "late_wake": late}
+        other = gap - sum(named.values()) - min(sleep_plan, sleep_got)
+        named["other"] = max(0.0, other)
+        self.stalls.append({"t_s": round(t_s, 3), "gap_ms": round(gap * 1000, 1), "threads": threads,
+                            "cause": max(named, key=named.get),
+                            **{k + "_ms": round(v * 1000, 1) for k, v in named.items()}})
+
+    def summary(self):
+        causes = collections.Counter(s["cause"] for s in self.stalls)
+        return {"steps": self.n_steps, "stalls": self.n_stalls, "max_gap_ms": round(self.max_gap * 1000, 1),
+                "gc_ms_total": round(self.gc_s * 1000), "causes": dict(causes), "last": list(self.stalls)[-3:]}
+
+
 class Recorder:
+    """Session log. write() only queues: a thread formats rows and writes the SD card (a flush can take tens of ms)."""
     FIELDS = ["t_s", "state", "amps", "visen_v", "raw", "clipped", "pot_v", "angle", "pot_ok"]
 
     def __init__(self, run_dir):
@@ -666,19 +717,31 @@ class Recorder:
         self.f = open(self.path, "w", newline="")
         self.w = csv.DictWriter(self.f, fieldnames=self.FIELDS, extrasaction="ignore")
         self.w.writeheader()
-        self.n = 0
+        self.q = queue.Queue()
+        self.thread = threading.Thread(target=self._work, daemon=True)
+        self.thread.start()
 
     def write(self, row):
-        self.w.writerow({**row, "t_s": f"{row['t_s']:.5f}", "amps": f"{row['amps']:.5f}",
-                         "visen_v": f"{row['visen_v']:.6f}", "clipped": int(row["clipped"]),
-                         "pot_v": "" if row.get("pot_v") is None else f"{row['pot_v']:.5f}",
-                         "angle": "" if row.get("angle") is None else f"{row['angle']:.2f}"})
-        self.n += 1
-        if self.n % 860 == 0:
-            self.f.flush()
+        self.q.put(row)
+
+    def _work(self):
+        last_flush = time.monotonic()
+        while True:
+            row = self.q.get()
+            if row is None:
+                break
+            self.w.writerow({**row, "t_s": f"{row['t_s']:.5f}", "amps": f"{row['amps']:.5f}",
+                             "visen_v": f"{row['visen_v']:.6f}", "clipped": int(row["clipped"]),
+                             "pot_v": "" if row.get("pot_v") is None else f"{row['pot_v']:.5f}",
+                             "angle": "" if row.get("angle") is None else f"{row['angle']:.2f}"})
+            if time.monotonic() - last_flush > 1.0 and self.q.empty():
+                self.f.flush()
+                last_flush = time.monotonic()
+        self.f.close()
 
     def close(self):
-        self.f.close()
+        self.q.put(None)
+        self.thread.join(timeout=3)
 
 
 def start_run(ctrl, body, extra, root=br.RUNS_ROOT, options_path=br.OPTIONS_PATH):
@@ -734,6 +797,8 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
             if path == "/api/moves":
                 with ctrl.lock:
                     return list(ctrl.move_log)
+            if path == "/api/loop":
+                return {**ctrl.loop.summary(), "all": list(ctrl.loop.stalls)}
             if len(parts) == 3 and parts[1] == "runs":
                 return br.load_run(runs_root, parts[2])
             if len(parts) == 4 and parts[1] == "runs" and parts[3] == "trace":
@@ -864,10 +929,22 @@ def main(argv=None):
              "sha": deployed_sha()}
     stop = threading.Event()
 
+    def poll_power():  # off the control loop: vcgencmd is a subprocess (tens of ms on a Pi Zero 2)
+        while not stop.wait(2.0):
+            extra["throttled"] = throttled()
+            extra["i2c_retries"] = dev.retries
+
     def control_loop():
         next_t = time.monotonic()
-        k = 0
+        prev_start = None
+        sleep_plan = sleep_got = 0.0
+        gc_mark = ctrl.loop.gc_s
         while not stop.is_set():
+            start = time.perf_counter()
+            if prev_start is not None:
+                ctrl.loop.record(time.monotonic() - ctrl.t0, start - prev_start, ctrl.tick_parts, write_s,
+                                 ctrl.loop.gc_s - gc_mark, sleep_plan, sleep_got, threading.active_count())
+            prev_start, gc_mark = start, ctrl.loop.gc_s
             try:
                 row = ctrl.tick()
             except Exception as e:  # never leave the bridge driving with nobody watching the current
@@ -875,18 +952,21 @@ def main(argv=None):
                 ctrl.fault = f"controller stopped: {e!r}"
                 print(ctrl.fault, file=sys.stderr, flush=True)
                 return
+            w0 = time.perf_counter()
             if row is not None and ctrl.logging_now():
                 rec.write(row)
-            k += 1
-            if k % (args.rate * 2) == 0:  # every ~2 s
-                extra["throttled"] = throttled()
-                extra["i2c_retries"] = dev.retries
+            write_s = time.perf_counter() - w0
             next_t += period
             delay = next_t - time.monotonic()
+            sleep_plan = max(delay, 0.0)
+            s0 = time.perf_counter()
             if delay > 0:
                 time.sleep(delay)
             else:
                 next_t = time.monotonic()
+            sleep_got = time.perf_counter() - s0
+
+    threading.Thread(target=poll_power, daemon=True).start()
 
     worker = threading.Thread(target=control_loop, daemon=True)
     worker.start()
