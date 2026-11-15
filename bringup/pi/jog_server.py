@@ -55,7 +55,7 @@ LEAD_S = 0.04  # start: brake this long before the target at the current speed (
 LEAD_S_RANGE = (0.0, 0.15)  # learned from each landing's overshoot (lead += overshoot / speed / 2)
 SETTLE_S = 0.15  # wait after the brake before judging where the shaft stopped
 TOL_DEG = 0.75  # a step or go-to within this is done; outside it, a slow correction move
-CORR_DUTY = 0.5  # speed cap for corrections (0.3 couldn't turn the seal on cam02, 11/15)
+CORR_DUTY = 0.75  # speed cap for corrections: the seal needs 75-100 % to turn (Nick, cam02 11/15; 0.3 and 0.5 stalled)
 MAX_TRIES = 3  # corrections per target
 NO_MOTION_S = 0.6  # driving but the angle moved < 0.5 deg in this long -> stop (stalled, or too slow to turn);
 GAP_DEG = 35.0  # ...plus the time to cross the pot's ~30 deg gap, where the reading doesn't move, at this speed
