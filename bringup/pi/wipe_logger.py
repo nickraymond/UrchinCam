@@ -24,6 +24,8 @@ from urchin_hw import LEDS, raw_to_volts
 
 DATA_ROOT = os.path.expanduser("~/NereusData/UrchinCam")
 MAX_STROKE_S = 10.0
+MAX_WIPES = 1000
+MAX_STALL_AMPS = 2.5
 VBUS_FSR = 4.096
 # With the MP6550 awake and no load, VISEN reads a few mV (cam02, J3 open, 11/12, 5 sequences): ~4.4 mV in
 # coast, forward, and brake entered from forward or coast; ~5.5 mV in reverse and in brake entered straight from
@@ -267,6 +269,10 @@ def parse_args(argv=None):
     for name in ("fwd_s", "rev_s"):
         if not 0 <= getattr(a, name) <= MAX_STROKE_S:
             p.error(f"--{name.replace('_', '-')} must be 0-{MAX_STROKE_S} s")
+    if not 1 <= a.wipes <= MAX_WIPES:
+        p.error(f"--wipes must be 1-{MAX_WIPES}")
+    if not 0 < a.stall_amps <= MAX_STALL_AMPS:
+        p.error(f"--stall-amps must be above 0 and at most {MAX_STALL_AMPS} A (the MP6550's 2.5 A typ trip)")
     return a
 
 
@@ -326,5 +332,11 @@ def main(argv=None):
     print(f"plot: python3 {os.path.join(os.path.dirname(__file__), 'plot_run.py')} {run_dir}")
 
 
+def _on_sigterm(*_):
+    raise KeyboardInterrupt  # unwinds through main()'s finally: bridge asleep, ADC stopped, GPIO released
+
+
 if __name__ == "__main__":
+    import signal
+    signal.signal(signal.SIGTERM, _on_sigterm)
     main()

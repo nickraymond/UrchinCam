@@ -18,6 +18,9 @@ import time
 import urchin_hw as hw
 
 EXPECTED_ADS = 0x48
+CUTOFF_MV = 100.0  # motor-open: VISEN above this (0.5 A at 0.2 V/A) stops the test at once
+MAX_SECONDS = 10.0
+wl_zero_max_mv = 15.0  # same as wipe_logger.ZERO_MAX_V
 BNO085_CHOICES = (0x4A, 0x4B)
 
 
@@ -135,9 +138,16 @@ def cmd_motor_open(args):
             action()
             time.sleep(args.seconds)
             mv = visen_mv(adc)
-            good = abs(mv) < 2.0
+            if abs(mv) > CUTOFF_MV:  # J3 must be open: current means a motor or a short is on J3
+                motor.sleep()
+                print(f"{label}: FAIL VISEN {mv:.1f} mV (> {CUTOFF_MV:g} mV = 0.5 A): is J3 open? stopped")
+                return False
+            # Card 6.5 (changed 11/12 after the first runs, see VISEN_SCALE.md): asleep < 2 mV; awake, record the
+            # no-load offset (cam02: 4.4 mV forward / coast, 5.5 mV reverse); above 15 mV means current is flowing.
+            bar = 2.0 if action is motor.sleep else wl_zero_max_mv
+            good = abs(mv) < bar
             ok &= good
-            print(f"{label}: DMM should read {expect}; {'PASS' if good else 'FAIL'} VISEN {mv:.2f} mV (bar < 2 mV)")
+            print(f"{label}: DMM should read {expect}; {'PASS' if good else 'FAIL'} VISEN {mv:.2f} mV (bar < {bar:g} mV)")
         return ok
     finally:
         motor.sleep()
@@ -155,9 +165,11 @@ def main(argv=None):
     leds.add_argument("--level", type=float, default=0.02, help="brightness 0-1 (default 0.02; 1 = full on)")
     leds.set_defaults(fn=cmd_leds)
     mo = sub.add_parser("motor-open")
-    mo.add_argument("--seconds", type=float, default=2.0)
+    mo.add_argument("--seconds", type=float, default=2.0, help=f"per state, at most {MAX_SECONDS:g} s")
     mo.set_defaults(fn=cmd_motor_open)
     args = p.parse_args(argv)
+    if getattr(args, "seconds", 0) > MAX_SECONDS:
+        p.error(f"--seconds must be at most {MAX_SECONDS:g}")
     sys.exit(0 if args.fn(args) else 1)
 
 

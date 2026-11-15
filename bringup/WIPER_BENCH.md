@@ -1,45 +1,77 @@
 # Wiper bench: what we know (cam02, 2026-11-12 to 11-15)
 
 The expander board on cam02 (Pi Zero 2 W) drives the wiper motor through the MP6550 and reads its current (VISEN on
-ADS1115 AIN0) and the shaft angle (rotary pot on AIN2). Everything below was measured on that one board and one
-hand-held rig (n = 1 rig, no rigid mount yet). Raw data: `~/NereusData/UrchinCam/` on the Mac and on cam02; each
-section names its folder.
+ADS1115 AIN0) and the shaft angle (rotary pot on AIN2). Everything below was measured on **one board, one hand-held
+rig, one motor**: the 1000:1 gearmotor on the wiper shaft (Nick, 11/15: "500mA is working well for my 1000:1
+motor"; exact part number not recorded). Raw data is on the Mac under `~/NereusData/UrchinCam/` (cam02's own copy
+mirrored to `from_cam02/`); each claim names its folder, or says where it was only printed to the session.
 
-## Production pick: the simple method, with the pot streamed during moves
+## Status: a candidate method, not a pass
 
-Drive at full speed toward the target, brake one learned lead before it (lead time x current speed), no slow-down
-phase. The pot is streamed during moves (~420 readings/s, ~0.7 deg of travel apart at 300 deg/s); the current is
-read every 8th sample. Nick (11/15): reliability, simplicity and consistent results matter most in production.
+Nick's stated preference (11/15): the **simple** method, because reliability, simplicity and consistent results
+matter most in production. Simple = drive at the set speed toward the target and brake one learned lead before it
+(lead time x current speed); no slow-down phase. Since 13:18 the pot is streamed during moves (~420 readings/s,
+~0.7 deg of travel apart at 300 deg/s) and the current is read every 8th sample.
 
-30 wipes each, 0 -> +90 -> 0 deg at 100 %, brush on the raised surface (`2026-11-15_*_compare/SUMMARY.md`):
+The data does **not** yet show it meets a production bar: the bar below was not written before the runs, each code
+configuration has one 30-wipe run (n = 1) on a hand-held rig, and 4 of the 5 streamed-pot runs miss their first
+wipe by 4-7 deg. A pre-registered repeat is proposed in the test card (stage 10) for Nick's OK.
 
-| run | mean | median | p95 | max | sd | within 1 / 2 / 3 deg | J / wipe | s / wipe |
-|---|---|---|---|---|---|---|---|---|
-| 12:47 simple, pot read every ~10 ms | 1.29 | 1.08 | 2.49 | 3.88 | 1.56 | 26 / 45 / 58 of 60 | 1.433 | 1.13 |
-| 13:18 simple, pot streamed | 0.95 | 0.70 | 2.84 | 3.95 | 1.26 | 39 / 53 / 58 | 1.471 | 1.14 |
-| **13:34 simple, control-loop pauses removed** | **1.02** | **0.88** | **2.37** | **2.81** | **1.14** | 32 / 49 / **60** | 1.433 | 1.13 |
-| 13:34 approach (see below), same conditions | 0.93 | 0.46 | 3.00 | 7.80 | 1.58 | 44 / 54 / 57 | 1.341 | 1.20 |
+### Every comparison run on 11/15
 
-Energy is motor current x 5 V (assumed: no +5V divider fitted) over the move, corrections included.
+0 -> +90 -> 0 deg at 100 % speed, 0.3 s rest at each end, brush on the raised surface (0-90 deg), 1000:1 motor,
+current cut-off at its default 0.5 A / 250 ms (settings aren't saved and every run followed a server restart; a
+change on a page would not have been logged). Folders `~/NereusData/UrchinCam/2026-11-15_<time>_compare/` hold
+`moves.json` and per-method `samples_*.csv`.
 
-The "approach" method (set speed until 25 deg out, then 60 % with a speed floor, per-direction and per-region learned
-leads) is still selectable on the Jog page. Its median is lower but its tail is worse (its leads start untrained), and
-in the first 30-wipe run it never actually slowed down (~300 deg/s at the brake, the same as simple). It stays an
-experiment, not the production method.
+| folder | code | cam02 services | method | strokes | mean | median | p95 | max | within 3 deg | 1st stroke | J / wipe |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `_compare` (12:3x) | dced42d | all on | simple | 1 | (stopped: braked at 45 deg, see fixes) | | | | | -33.2 | |
+| `_compare` (12:3x) | dced42d | all on | approach | 16 | 1.15 | 0.82 | 3.35 | 4.88 | 14 / 16 | -4.88 | 1.377 |
+| `1242` | cf06a39 | all on | simple | 16 | 1.29 | 1.00 | 3.18 | 4.20 | 14 / 16 | -4.20 | 1.443 |
+| `1242` | cf06a39 | all on | approach | 16 | 1.13 | 0.74 | 3.62 | 3.69 | 14 / 16 | -3.62 | 1.344 |
+| `1247` | cf06a39 | all on | simple | 60 | 1.29 | 1.08 | 2.49 | 3.88 | 58 / 60 | -1.71 | 1.433 |
+| `1247` | cf06a39 | all on | approach | 60 | 1.32 | 1.17 | 2.80 | 3.51 | 57 / 60 | +1.44 | 1.406 |
+| `1318` | 44480cb | all on | simple, pot streamed | 60 | 0.95 | 0.70 | 2.84 | 3.95 | 58 / 60 | -3.95 | 1.471 |
+| `1323` | c3555f7 | all on | simple | 60 | 1.12 | 0.86 | 2.50 | 7.02 | 57 / 60 | -7.02 | 1.456 |
+| `1325` | 6254b8f | all on | simple | 60 | 1.16 | 1.05 | 2.48 | 6.96 | 58 / 60 | -6.96 | 1.442 |
+| `1331` | 6254b8f | power_logger off | simple | 60 | 1.19 | 1.08 | 2.45 | 5.89 | 58 / 60 | -5.89 | 1.451 |
+| `1331` | 6254b8f | power_logger off | approach | 60 | 1.25 | 0.90 | 2.89 | 6.49 | 58 / 60 | -5.19 | 1.369 |
+| `1334` | 6254b8f | 11 services off | simple | 60 | 1.02 | 0.88 | 2.37 | 2.81 | 60 / 60 | -1.22 | 1.433 |
+| `1334` | 6254b8f | 11 services off | approach | 60 | 0.93 | 0.46 | 3.00 | 7.80 | 57 / 60 | -7.80 | 1.341 |
 
-### Power and energy, simple method (13:34 run, 30 wipes = 60 strokes)
+Pooled simple strokes from the 30-wipe runs: 349 of 360 within 3 deg. Errors are in degrees.
 
-Motor only (VISEN), 5 V assumed (no +5V divider fitted), so power = current x 5 V; the Pi's own draw is not included.
-Move time includes the 0.1 s brake and 0.15 s settle, where the motor draws ~0.
+- **Lost run:** the first comparison (about 12:31, code 97c1458, sub-100 % PWM dropping out) wrote to
+  `2026-11-15_compare/`, and the next run (12:3x, dced42d) overwrote it. Its numbers quoted earlier in the session
+  (simple 1.50 J, approach 1.56 J per wipe) have no surviving raw data.
+- **First stroke after a restart:** in 4 of the 5 streamed-pot simple runs the first stroke missed by 4-7 deg
+  (the brake lead restarts untrained; `1247` ran without a restart and missed by 1.7). Leaving out the first wipe,
+  1318-1334 range 57-58 of 58 within 3 deg, max 2.78-4.68 deg (diagnostic only, not a result). Since this PR the
+  learned leads are saved on the Pi (`~/NereusData/UrchinCam/motion_cal.json`) and reloaded at start; not yet
+  re-run on hardware.
+- **How error is measured:** the same pot's angle 0.25 s after the brake (0.1 s brake + 0.15 s settle) minus the
+  target. The pot scale is a hand calibration (98.3 deg/V, about +-10 %), so the error is in pot degrees; an
+  external reference (a marked stop or a camera) has not been used.
+- **Energy:** motor current x 5 V (assumed; no +5V divider fitted) over the move, corrections included; the Pi's
+  own draw is not included.
+
+The "approach" method (set speed until 25 deg out, then 60 % with a speed floor; per-direction and per-region learned
+leads) is selectable on the Jog page as an experiment. In 1247 it never actually slowed down (~300 deg/s at the brake
+for both methods, from the samples); its leads also start untrained (first strokes -5.19 and -7.80 deg).
+
+### Power and energy, simple method (1334 run, 30 wipes = 60 strokes)
+
+Motor only, 5 V assumed. Move time includes the 0.1 s brake and 0.15 s settle, where the motor draws ~0.
 
 | quantity | forward stroke (0 -> 90) | reverse stroke (90 -> 0) | full wipe (out + back) |
 |---|---|---|---|
-| energy | 0.706 +- 0.030 J | 0.728 +- 0.030 J | **1.433 +- 0.046 J** (1.358-1.532) = 0.398 mWh |
+| energy | 0.706 +- 0.030 J | 0.728 +- 0.030 J | 1.433 +- 0.046 J (1.358-1.532) = 0.398 mWh |
 | move time | 0.563 s | 0.565 s | 1.128 s (~0.62 s of it driving) |
 | average power over the move | 1.25 W | 1.29 W | 1.27 W |
 | current while driving | | | median 390 mA, mean 408 mA |
 | power while driving | | | median 1.95 W, mean 2.04 W |
-| peak current (stroke start, < 250 ms) | 1254 mA max, 855 mA median | 1194 mA max, 870 mA median | 1.25 A max (6.3 W) |
+| peak current (stroke start, < 250 ms) | 1254 mA max, 855 mA median | 1194 mA max, 870 mA median | 1.25 A max |
 
 | wipes per day | energy | at 5 V |
 |---|---|---|
@@ -53,7 +85,8 @@ Move time includes the 0.1 s brake and 0.15 s settle, where the motor draws ~0.
   green-blue stays ~4.96 kOhm while turning; white sweeps between them. Value ~5 kOhm (body code 502); make not
   confirmed (logo looks like Amphenol Piher).
 - Scale: **98.3 deg/V** (11 hand turns of ~90 deg, median 0.916 V, range 0.82-1.07 V, about +-10 %). Check against
-  the motor: 0.6 s strokes read 194-197 deg on the pot where Nick estimated ~180 deg by eye.
+  the motor: 0.6 s strokes read 194-197 deg on the pot where Nick estimated ~180 deg by eye (printed to the session,
+  11/15; samples in `from_cam02/2026-11-15_jog_*`).
 - It turns all the way round (no end stops). The track reads **0 to 3.35 V** over ~330 deg.
 - **Dead zone** (~30 deg, inferred from 360 - 3.35 V x 98.3): past 3.35 V the wiper first **floats** (reads ~0.57 V,
   like an unconnected ADC input) and then sits on the **0 V end terminal** (reads 0.000 V). Both look like real track
@@ -74,7 +107,7 @@ Move time includes the 0.1 s brake and 0.15 s settle, where the motor draws ~0.
 ## The app: jog bench on cam02
 
 `pi/jog_server.py`, systemd unit `jog-bench` (starts at boot, restarts on failure). Pages on port 8765, on 127.0.0.1
-and the Pi's Tailscale address (`http://100.69.129.59:8765`):
+and the Pi's Tailscale address:
 
 | page | what |
 |---|---|
@@ -85,42 +118,61 @@ and the Pi's Tailscale address (`http://100.69.129.59:8765`):
 API: `/stream` (live samples + status), `/cmd`, `/move`, `/settings`, `/pot/zero`, `/pot/flip`, `/api/runs`,
 `/api/summary`, `/api/moves`, `/api/loop` (control-loop pauses with their cause).
 
-Safety: the motor stops on the current cut-off (default 0.5 A / 250 ms, editable), after the max run time, when no
-page heartbeat arrives for 1.5 s, on no motion (0.6 s plus gap time), on moving away from the target, on a move
-timeout, on 20 failed ADC reads in a row, on no drive current below 100 % (PWM re-created once first), and on any
-control-thread exception (bridge put to sleep). LED1 shows green forward, red reverse.
+Safety (each has a desk test): the motor stops on the current cut-off (default 0.5 A / 250 ms, editable), after the
+max run time (holds), when no page heartbeat arrives for 1.5 s (also between cycles and between queued moves), on no
+motion (moves: 0.6 s plus gap time; holds, timed wipe cycles and Runs: the same window while drawing >= 0.15 A), at
+3 deg from either end of the pot's safe track during a hold, on an untrusted pot reading (moves and holds), on moving
+away from the target, on a move timeout, on 20 failed ADC reads in a row, on no drive current below 100 % (PWM
+re-created once first), and on any control-thread exception (bridge put to sleep, pages show Stopped). POSTs must be
+JSON, to the bench's own address, from the same origin. LED1 shows green forward, red reverse.
+
+The heartbeat is global: any open page that is driving or moving keeps it alive.
 
 ## Things that bit us, and the fixes
 
 | problem | cause (evidence) | fix |
 |---|---|---|
 | Pot read followed motor current | ADS1115 ignores OS=1 written in continuous mode; register kept VISEN, read at 4x scale (0.146 V = 36.6 mV x 4) | power down, then start (`urchin_hw.ADS1115.single_shot`) |
-| 0 mA below 100 % speed | gpiozero device swaps + LED PWM: lgpio queues `tx_pwm` per GPIO and an endless entry never ends (29 dropouts in 25 trials) | `LgpioBackend`: pins claimed once, PWM stopped and idle before each change (0 in 25) |
+| 0 mA below 100 % speed | gpiozero device swaps + LED PWM: lgpio queues `tx_pwm` per GPIO and an endless entry never ends (29 dropouts in 25 trials) | `LgpioBackend`: pins claimed once, PWM stopped and idle before each change (0 in 25). Stress output printed to the session only; the test script was `/tmp/pwm_stress.py` on cam02 |
 | Wipe stopped mid-move | 51 ms loop stall mis-stamped the next pot reading as a 14 deg jump in <1 ms | stamp readings at step start; re-trust a possible path |
 | Brake lead grew to ~0.14 s | slow correction moves taught it (overshoot / low speed) | learn only from first strokes braked at >= 100 deg/s |
 | Control-loop pauses 15-56 ms | `vcgencmd` subprocess and SD writes in the loop; 5 ms interpreter-lock switch; crash-looping services | polling + logging off-loop, 0.5 ms switch, shared status; services below |
+| First stroke after a restart misses 4-7 deg | learned brake lead starts untrained (QE 019) | leads saved to `motion_cal.json` and reloaded (not yet re-run on hardware) |
+| Stall under the cut-off could drive for minutes in cycle mode | no-motion stop existed only in moves (QE 019) | no-motion stop in every drive mode while drawing current |
+| Any page on the tailnet could drive the motor | POSTs took any Origin and content type (QE 019) | JSON only, allowed Host, same origin |
 
 ## cam02 is a bench now, not a camera
 
-Stopped and disabled on 11/15 with Nick's OK ("you can terminate any other services on this rig"): power_logger,
-camstream, cam-control (all three crash-looping every 3-6 s), cam-status, mediamtx, nereus_power_dashboard,
-lifepo4wered-daemon, bluetooth, ModemManager, avahi-daemon, triggerhappy. List and one-line restore command:
-cam02 `~/NereusData/UrchinCam/services_disabled_2026-11-15.txt`. Pauses over 15 ms per 30-wipe run: 25 -> 10
-(5 during moves, 11-18 ms). The system journal is now kept across reboots (`/etc/systemd/journald.conf.d/90-persistent.conf`).
+Stopped and disabled on 11/15 with Nick's OK in the builder chat ("you can terminate any other services on this
+rig"): power_logger, camstream, cam-control (all three crash-looping every 3-6 s), cam-status, mediamtx,
+nereus_power_dashboard, lifepo4wered-daemon, bluetooth, ModemManager, avahi-daemon, triggerhappy. List and one-line
+restore command: cam02 `~/NereusData/UrchinCam/services_disabled_2026-11-15.txt` (copy in `2026-11-15_1334_compare/`).
+The system journal is kept across reboots (`/etc/systemd/journald.conf.d/90-persistent.conf`).
+
+Control-loop pauses over 15 ms per 30-wipe run, read from `/api/loop` right after each run and printed to the session
+only (not saved): 1323: 25 (longest 31 ms); 1325: 13 (32 ms); 1331: 21 (37 ms); 1334: 10 (56 ms; 5 during moves,
+11-18 ms; the 56 ms one in the pot read between moves). `2026-11-15_1334_compare/api_loop_after_run.json` is a later
+snapshot that also covers an hour of idle time and an `apt install` (1.17 s gap), so it doesn't isolate the run.
 
 ## Motor and load (same rig)
 
-- Free shaft, 5 V: 260:1 78-97 mA, 1000:1 90-133 mA (11/13). Reverse draws more than forward on both; the driver gives
-  4.92-4.94 V either way, so it's the motor/gearbox.
-- On the shaft with the seal: speed 50 % ~30 deg/s, 60 % ~105, 80 % ~195, 100 % ~360 deg/s; below ~45 % it doesn't
-  turn; coast after the brake 0.3 deg (50 %) to ~9 deg (100 %) (`2026-11-15_char/`).
+- Free shaft, 5 V: 260:1 78-97 mA, 1000:1 90-133 mA (11/13; `from_cam02/2026-11-13_motor_free_260`,
+  `_motor_free_1000`, `_motor_free_1000_r2`). Reverse draws more than forward on both; Nick's meter read 4.92-4.94 V at
+  the motor in both directions (chat, 11/13, `_vcheck_1000` holds the current), so it's the motor/gearbox.
+- On the shaft with the seal, 1000:1 (`2026-11-15_char/results.json`, one 0.3 s pulse per duty per direction):
+  speed 50 % ~30 deg/s, 60 % ~96-115, 80 % ~185-206, 100 % ~351-374 deg/s; coast after the brake 0.3 deg (50 %) to
+  ~9 deg (100 %). The 90 % forward row reads speed 0.0 / moved -18.7 deg: a measurement glitch, left out. "Doesn't
+  turn below ~45 %" is an extrapolation from the 50 % row, not a measured point. The run before this one read 0 mA
+  below 100 % (the PWM bug), so it was discarded.
 - Brush on the surface (0-90 deg): median current forward ~450 mA at 20-40 deg, reverse ~475 mA at 60-70 deg,
   ~310-380 mA elsewhere; stroke-start peaks 1.2-1.5 A for < 250 ms. ~1.43 J per 0-90-0 wipe.
 - Motor part numbers still unknown (Nick: treat as 6 V versions).
 
 ## Open
 
-1. Repeat the 30-wipe run on the rigid printed mount (how much of the ~1.1 deg scatter is mechanical).
+1. The pre-registered repeat (test card stage 10, Nick's OK first), on the rigid printed mount: how much of the
+   ~1.1 deg scatter is mechanical, and whether saved leads fix the first stroke.
 2. The idle pot read (between moves) sometimes stalls up to 56 ms; moves use the streamed path and aren't affected.
 3. The 21 deg pot jump above.
-4. Stall test (card stage 9) and Ethernet (stage 5) not run yet.
+4. Stall test (card stage 9) and Ethernet (stage 5) not run yet; motor part numbers and stall current unknown.
+5. Angle error has no external reference (a marked stop or a camera) yet.

@@ -830,6 +830,116 @@ class TestJog(unittest.TestCase):
         self.assertEqual(ctrl.state, "asleep")
         self.assertTrue(any("stall cut-off" in e["text"] for e in ctrl.events))
 
+    # --- QE 019 B3: no-motion and track-end stops outside moves ---
+    def test_cycle_stall_under_the_cut_off_stops(self):
+        ctrl = self._mover(vps=0.0)  # shaft held: the pot never moves
+        self.adc.run_a = 0.30  # under the 0.5 A cut-off (QE's case)
+        ctrl.request("cycle", 30.0, 100, 0.5)
+        self._run_for(ctrl, 4.0)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertIsNone(ctrl.cycle)
+        self.assertTrue(any("no motion" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
+
+    def test_free_spin_with_pot_uncoupled_keeps_running(self):
+        ctrl = self._mover(vps=0.0)  # pot not turning, motor free: ~60 mA, under NO_MOTION_MIN_A
+        ctrl.request("cycle", 3.0, 1, 0.5)
+        self._run_for(ctrl, 2.5)
+        self.assertEqual(ctrl.state, "fwd")
+        self.assertFalse(any("no motion" in e["text"] for e in ctrl.events))
+
+    def test_hold_stops_at_the_end_of_the_safe_track(self):
+        ctrl = self._mover()
+        self.adc.pot_u = 3.0  # 25 deg below the top of SAFE_V; forward raises the voltage
+        self._run_for(ctrl, 0.2)
+        ctrl.request("fwd")
+        self._run_for(ctrl, 1.0)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertTrue(any("end of the pot's safe track" in e["text"] for e in ctrl.events))
+        self.assertLess(ctrl.pot.last_v, 3.35)  # stopped before the dead zone
+
+    # --- QE 019 B5: each failure-mode path has a test ---
+    def test_safe_tick_puts_the_bridge_to_sleep(self):
+        ctrl = self._ctrl()
+        ctrl.request("fwd")
+        self._run_for(ctrl, 0.2)
+        self.assertEqual(self.gpio.levels[hw.GPIO_NSLEEP_HB], 1)
+
+        def boom():
+            raise RuntimeError("I2C bus gone")
+        ctrl.tick = boom
+        row, ok = jog_server.safe_tick(ctrl, ctrl.motor)
+        self.assertFalse(ok)
+        self.assertEqual(self.gpio.levels[hw.GPIO_NSLEEP_HB], 0)
+        self.assertIn("I2C bus gone", ctrl.fault)
+        self.assertEqual(ctrl.state, "asleep")
+
+    def test_cycle_pause_without_heartbeat_ends_the_run(self):
+        ctrl = self._ctrl()
+        ctrl.request("cycle", 0.5, 3, 3.0)
+        self._run_for(ctrl, 1.5)  # first cycle done, resting
+        self.assertEqual(ctrl.cycle["stage"], "pause")
+        seq0 = ctrl.seq
+        self._run_for(ctrl, 3.5, hb=False)
+        # the next stroke must never start (not start and then be stopped by the drive watchdog)
+        self.assertFalse([r for r in ctrl.buf if r["seq"] > seq0 and r["state"] in ("fwd", "rev")])
+        self.assertIsNone(ctrl.cycle)
+        self.assertEqual(ctrl.cycle_result["reason"], "lost contact with the page")
+        self.assertEqual(ctrl.state, "asleep")
+
+    def test_queued_moves_need_a_heartbeat_to_start(self):
+        ctrl = self._mover()
+        ctrl.request_move("wipe", 45, cycles=2, pause_s=5.0)
+        self._run_for(ctrl, 2.0)  # out stroke done, resting before the return
+        self.assertEqual(ctrl.state, "asleep")
+        seq0 = ctrl.seq
+        self._run_for(ctrl, 6.0, hb=False)  # the rest ends well past the 1.5 s heartbeat window
+        self.assertFalse([r for r in ctrl.buf if r["seq"] > seq0 and r["state"] in ("fwd", "rev")])
+        self.assertIsNone(ctrl.move)
+        self.assertEqual(len(ctrl.moves), 0)
+        self.assertTrue(any("lost contact" in e["text"] for e in ctrl.events))
+
+    def test_move_stops_when_the_pot_becomes_untrusted(self):
+        ctrl = self._mover()
+        ctrl.request_move("step", 90)
+        self._run_for(ctrl, 0.2)
+        self.adc.pot_u += 1.2  # an impossible jump (~118 deg in one reading)
+        self._run_for(ctrl, 0.3)
+        self.assertIn(ctrl.state, ("brake", "asleep"))
+        self.assertTrue(any("pot reading unreliable" in e["text"] for e in ctrl.events))
+
+    def test_move_refused_while_the_pot_is_untrusted(self):
+        ctrl = self._mover()
+        ctrl.pot.ok = False
+        with self.assertRaises(ValueError) as cm:
+            ctrl.request_move("step", 10)
+        self.assertIn("dead zone", str(cm.exception))
+
+    def test_move_times_out(self):
+        ctrl = self._mover(vps=0.05)  # ~5 deg/s: progress keeps coming, the target doesn't
+        ctrl.request_move("step", 90)
+        self._run_for(ctrl, 6.0)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertTrue(any("timed out" in e["text"] for e in ctrl.events))
+
+    def test_learned_leads_survive_a_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "motion_cal.json")
+            a = self._mover()
+            a.load_motion_cal(path)  # nothing saved yet: defaults
+            self.assertEqual(a.lead_s, jog_server.LEAD_S)
+            a.request_move("step", 60)
+            self._run_for(a, 3.0)
+            learned = a.lead_s
+            self.assertNotEqual(learned, jog_server.LEAD_S)
+            b = self._mover()
+            b.load_motion_cal(path)
+            self.assertAlmostEqual(b.lead_s, learned)
+
+    def test_motor_starts_asleep(self):
+        g = FakeGpio()
+        hw.Motor(g)
+        self.assertEqual([g.levels[p] for p in (hw.GPIO_NSLEEP_HB, hw.GPIO_IN1, hw.GPIO_IN2)], [0, 0, 0])
+
     def test_no_drive_current_guard(self):
         ctrl = self._mover()
         dead = lambda pin, duty, freq=None: self.gpio.output(pin, 0)  # PWM that drives nothing (11/15 bug)
@@ -907,6 +1017,78 @@ class TestPot(unittest.TestCase):
         dps = (driven[-1]["angle"] - driven[0]["angle"]) / (driven[-1]["t_s"] - driven[0]["t_s"])
         self.assertAlmostEqual(dps, 0.5 * 98.3, delta=3)
         self.assertEqual(ctrl.status()["pot_errors"], 0)
+
+
+class TestHttpGuard(unittest.TestCase):
+    """QE 019 B4: only JSON POSTs, to an allowed Host, from that same origin, can drive the motor."""
+
+    def setUp(self):
+        import http.client
+        import threading
+        from http.server import ThreadingHTTPServer
+        self.http = http.client
+        self.t = TestJog()
+        self.ctrl = self.t._ctrl()
+        hosts = set()
+        self.srv = ThreadingHTTPServer(("127.0.0.1", 0), jog_server.make_handler(self.ctrl, {}, hosts=hosts))
+        self.port = self.srv.server_address[1]
+        hosts |= jog_server.allowed_hosts(["127.0.0.1"], self.port)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+    def post(self, path, body, ctype="application/json", origin=None, host=None):
+        c = self.http.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        h = {"Content-Type": ctype}
+        if origin:
+            h["Origin"] = origin
+        if host:
+            h["Host"] = host
+        c.request("POST", path, body=body, headers=h)
+        r = c.getresponse()
+        r.read()
+        c.close()
+        return r.status
+
+    def test_same_origin_json_is_accepted(self):
+        st = self.post("/cmd", '{"action": "fwd"}', origin=f"http://127.0.0.1:{self.port}")
+        self.assertEqual(st, 200)
+        self.assertEqual(self.ctrl.want, "fwd")
+
+    def test_text_plain_is_refused(self):
+        self.assertEqual(self.post("/cmd", '{"action": "fwd"}', ctype="text/plain"), 415)
+        self.assertEqual(self.ctrl.want, "stop")
+
+    def test_foreign_origin_is_refused(self):
+        self.assertEqual(self.post("/cmd", '{"action": "fwd"}', origin="http://evil.example"), 403)
+        self.assertEqual(self.post("/settings", '{"stall_amps": 4}', origin="http://evil.example"), 403)
+        self.assertEqual(self.ctrl.settings["stall_amps"], jog_server.LIMITS["stall_amps"][0])
+
+    def test_unknown_host_is_refused(self):  # DNS rebinding
+        self.assertEqual(self.post("/cmd", '{"action": "fwd"}', host="evil.example:8765"), 403)
+
+    def test_bad_bodies_get_400_not_a_dropped_connection(self):
+        self.assertEqual(self.post("/cmd", '["fwd"]'), 400)
+        self.assertEqual(self.post("/move", '{"kind": "step"}'), 400)
+        big = '{"x": "' + "a" * (jog_server.MAX_BODY + 10) + '"}'
+        self.assertEqual(self.post("/cmd", big), 413)
+
+
+class TestScriptBounds(unittest.TestCase):
+    def test_wipe_logger_bounds(self):
+        base = ["--run", "x", "--motor", "m", "--fwd-s", "1", "--rev-s", "1"]
+        with self.assertRaises(SystemExit):
+            wipe_logger.parse_args(base + ["--wipes", "5000"])
+        with self.assertRaises(SystemExit):
+            wipe_logger.parse_args(base + ["--stall-amps", "5"])
+        self.assertEqual(wipe_logger.parse_args(base + ["--wipes", "10"]).wipes, 10)
+
+    def test_board_check_motor_open_seconds_bound(self):
+        with self.assertRaises(SystemExit) as cm:
+            board_check.main(["motor-open", "--seconds", "60"])
+        self.assertEqual(cm.exception.code, 2)  # argparse error, before any GPIO
 
 
 class TestLoopStats(unittest.TestCase):

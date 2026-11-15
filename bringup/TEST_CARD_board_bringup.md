@@ -1,6 +1,16 @@
 # Test card: UrchinCam expander board bring-up + wiper power bench
 
-Pre-registered before any power-on. Status: **DRAFT, waiting for Nick's OK** (approval names this file `@ <sha>`).
+Pre-registered before any power-on. Status: **not yet approved as a card** (approval names this file `@ <sha>`;
+board card `nick_wiper_bringup_ok`). Stages 2-7 **ran anyway**, on Nick's go in the builder chat, not on an approved
+card (QE 019, 11/15, B2). His words, read in that chat:
+- 11/12: "lets jump to pi bring up first, i have "cam002" plugged in and i think it's IP is 192.168.1.232 can you ssh
+  it" (it was .249), then "I went rouge and just plugged the board ontop of the pi, it is rebooting. Please try to
+  communicate with the ADC and the motor driver ... see how far you can get without me". Stages 0-1 (bench supply,
+  board off the Pi) were skipped.
+- 11/13: "ok i have the two motors, tell me when to plug one in for a test"; "you are allowed to access the pi, stop
+  asking me".
+- 11/15: the jog bench comparisons in [WIPER_BENCH.md](WIPER_BENCH.md) ran outside this card (they are not stage 8).
+Per QE 019 this card is the PREREG file (tier a): the bars below must stand, approved, before the next hardware run.
 Board: `UrchinCam_Expander_PCBA_01` (UrchinCam `d8776c2`). Scale math and datasheet pages: [VISEN_SCALE.md](VISEN_SCALE.md).
 Nick does all wiring, power and mechanical steps. Scripts are in [pi/](pi/); no script runs on a Pi until Nick
 gives the host and says go.
@@ -21,7 +31,9 @@ gives the host and says go.
 
 Record sheet: copy the "Result" lines into `~/NereusData/UrchinCam/<YYYY-MM-DD>_bringup/RESULTS.md`.
 
-Pi model: ______  OS (`cat /etc/os-release`): ______  Motor (Pololu #): ______  Bench supply: ______
+Pi model: Raspberry Pi Zero 2 W Rev 1.0 (cam02)  OS: Debian 12 bookworm, kernel 6.12.47+rpt-rpi-v8
+Motor (Pololu #): not recorded; 260:1 and 1000:1 micro metal gearmotors, treated as 6 V versions (Nick, 11/13)
+Bench supply: none; everything on the Pi's USB 5 V (stages 0-1 skipped).
 
 ## Power rule (read first)
 
@@ -33,11 +45,11 @@ Never connect anything to J4 (it only feeds U4, which isn't fitted). J6: pin 1 =
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 0.1 | Look: solder bridges on U1 (QFN-12), U2, U3, U5 (QFN-24), U6; parts present per BOM; U4 empty | nothing seen | |
-| 0.2 | Ohms TP4 (+5V) → TP2 (GND), both probe polarities | > 100 Ω after the caps charge (a short is < 1 Ω) | |
-| 0.3 | Ohms TP3 (+3V3) → TP2 | > 100 Ω | |
-| 0.4 | Ohms TP4 → TP3 (5V to 3V3 short would kill the Pi's 3V3) | > 1 kΩ | |
-| 0.5 | Ohms J3.1 → J3.3 (OUT1 to OUT2) | not a short (> 100 Ω) | |
+| 0.1 | Look: solder bridges on U1 (QFN-12), U2, U3, U5 (QFN-24), U6; parts present per BOM; U4 empty | nothing seen || not run: the board went straight onto the Pi (11/12) |
+| 0.2 | Ohms TP4 (+5V) → TP2 (GND), both probe polarities | > 100 Ω after the caps charge (a short is < 1 Ω) || not run: the board went straight onto the Pi (11/12) |
+| 0.3 | Ohms TP3 (+3V3) → TP2 | > 100 Ω || not run: the board went straight onto the Pi (11/12) |
+| 0.4 | Ohms TP4 → TP3 (5V to 3V3 short would kill the Pi's 3V3) | > 1 kΩ || not run: the board went straight onto the Pi (11/12) |
+| 0.5 | Ohms J3.1 → J3.3 (OUT1 to OUT2) | not a short (> 100 Ω) || not run: the board went straight onto the Pi (11/12) |
 
 ## Stage 1: board alone on the bench supply (J6), no Pi
 
@@ -46,14 +58,14 @@ Without the Pi there is no +3V3 (it only comes from J1.1/J1.17), so only U1 and 
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 1.1 | Supply current at turn-on and after 10 s | no current limit; record mA (the RTL8152B idle current is unknown; this run sets it) | |
-| 1.2 | TP4 (+5V) | 4.90–5.10 V | |
-| 1.3 | TP3 (+3V3) | < 0.3 V (nothing should back-feed 3V3) | |
-| 1.4 | RTL8152B 3.3 V: either pad of C20 or C21 that isn't GND | 3.1–3.5 V | |
-| 1.5 | RTL8152B 1.0 V: C18 or C19 non-GND pad | 0.9–1.1 V; record | |
-| 1.6 | RTL8152B DVDD10_UPS: C24 or C25 non-GND pad | record (no bar: I couldn't read the RTL8152B datasheet) | |
-| 1.7 | MP6550 V3P3 (C6 non-GND pad) and VCC (C5) | V3P3 ≈ 0 V is **expected** (nSLEEP_LDO floats low); VCC: record | |
-| 1.8 | Touch test after 2 min: U1, U5, FB1 | none hot | |
+| 1.1 | Supply current at turn-on and after 10 s | no current limit; record mA (the RTL8152B idle current is unknown; this run sets it) || not run: the board went straight onto the Pi (11/12) |
+| 1.2 | TP4 (+5V) | 4.90–5.10 V || not run: the board went straight onto the Pi (11/12) |
+| 1.3 | TP3 (+3V3) | < 0.3 V (nothing should back-feed 3V3) || not run: the board went straight onto the Pi (11/12) |
+| 1.4 | RTL8152B 3.3 V: either pad of C20 or C21 that isn't GND | 3.1–3.5 V || not run: the board went straight onto the Pi (11/12) |
+| 1.5 | RTL8152B 1.0 V: C18 or C19 non-GND pad | 0.9–1.1 V; record || PASS 11/12: C18/C19 1.04 V (Nick, on the Pi's power, not a bench supply) |
+| 1.6 | RTL8152B DVDD10_UPS: C24 or C25 non-GND pad | record (no bar: I couldn't read the RTL8152B datasheet) || not run: the board went straight onto the Pi (11/12) |
+| 1.7 | MP6550 V3P3 (C6 non-GND pad) and VCC (C5) | V3P3 ≈ 0 V is **expected** (nSLEEP_LDO floats low); VCC: record || not run: the board went straight onto the Pi (11/12) |
+| 1.8 | Touch test after 2 min: U1, U5, FB1 | none hot || not run: the board went straight onto the Pi (11/12) |
 
 Why 1.4–1.6 matter: the netlist has no external 3.3 V or 1.0 V source for U5. The schematic symbol marks DVDD33 (pin 13)
 and DVDD10 (pin 16) as power outputs, so the chip should make its own rails from VDD5. I could not get the Realtek
@@ -65,9 +77,9 @@ Power off. Unplug J6. Seat the board on the Pi header. Power the Pi from its nor
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 2.1 | Pi boots, `vcgencmd get_throttled` | boots; `throttled=0x0` | |
-| 2.2 | TP4 (+5V) / TP3 (+3V3) | 4.75–5.25 V / 3.20–3.40 V | |
-| 2.3 | Repeat 1.4 (C20/C21) | 3.1–3.5 V | |
+| 2.1 | Pi boots, `vcgencmd get_throttled` | boots; `throttled=0x0` || PASS 11/12: boots with the board fitted; throttled=0x0 before and after every test |
+| 2.2 | TP4 (+5V) / TP3 (+3V3) | 4.75–5.25 V / 3.20–3.40 V || PASS 11/12: TP4 4.99 V / TP3 3.33 V (Nick) |
+| 2.3 | Repeat 1.4 (C20/C21) | 3.1–3.5 V || not run: C20/C21 face the Pi; needs the board off the Pi |
 
 ## Stage 3: I2C
 
@@ -75,8 +87,8 @@ Enable I2C (`sudo raspi-config nonint do_i2c 0`) if it isn't on. Then `python3 p
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 3.1 | Bus scan `/dev/i2c-1` | **0x48** (ADS1115, ADDR to GND, TI p. 20) and one device at **0x4A or 0x4B** (BNO085, SA0 to GND on this board; BNO085 datasheet not read, the scan confirms which). Nothing else. | |
-| 3.2 | `python3 pi/board_check.py ads` (reads AIN0–AIN3 at ±4.096 V, bridge asleep) | AIN0 (VISEN) < 5 mV; AIN1–3 record (floating TPs) | |
+| 3.1 | Bus scan `/dev/i2c-1` | **0x48** (ADS1115, ADDR to GND, TI p. 20) and one device at **0x4A or 0x4B** (BNO085, SA0 to GND on this board; BNO085 datasheet not read, the scan confirms which). Nothing else. || PASS 11/12: 0x48 only; BNO085 not fitted on this board (Nick), so 0x4A/0x4B absent is expected |
+| 3.2 | `python3 pi/board_check.py ads` (reads AIN0–AIN3 at ±4.096 V, bridge asleep) | AIN0 (VISEN) < 5 mV; AIN1–3 record (floating TPs) || PASS 11/12: AIN0 4.38 mV with the driver awake at boot, 0.20 mV asleep; AIN1-3 float ~572 mV |
 
 Note: BNO085 H_INTN goes only to TP10 and NRST is tied to +3V3, so the Pi can't see its interrupt or reset it. Not
 needed for bring-up; flag for the IMU work. ADS1115 ALERT/RDY goes only to TP8, so the logger polls.
@@ -87,7 +99,7 @@ needed for bring-up; flag for the IMU work. ADS1115 ALERT/RDY goes only to TP8, 
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 4.1 | LED1 G/R/B = GPIO17/27/22; LED2 G/R/B = GPIO6/19/26 | each of the 6 colors lights alone, in that order | |
+| 4.1 | LED1 G/R/B = GPIO17/27/22; LED2 G/R/B = GPIO6/19/26 | each of the 6 colors lights alone, in that order || PASS 11/12: Nick "G/R/B on LED1 then 2" (full brightness; 2 % default since 8e05f9f) |
 
 ## Stage 5: Ethernet (RTL8152B on J5)
 
@@ -97,7 +109,7 @@ twisted pair, R+/R− as the other (RJ45 pins 1/2 and 3/6), to a switch with DHC
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 5.1 | `lsusb` | a new device **0bda:8152** (Realtek; the ID the Linux `r8152` driver matches, kernel `drivers/net/usb/r8152.c`) | |
+| 5.1 | `lsusb` | a new device **0bda:8152** (Realtek; the ID the Linux `r8152` driver matches, kernel `drivers/net/usb/r8152.c`) || not run yet (USB to J5 not wired, 11/15) |
 | 5.2 | `dmesg`, driver of the new interface | bound to **r8152**, no errors | |
 | 5.3 | Link | `operstate` up, speed **100** Mb/s, full duplex | |
 | 5.4 | DHCP | an IPv4 address on the new interface within 30 s | |
@@ -114,11 +126,11 @@ VISEN. Nick reads volts across J3 (red on J3.1, black on J3.3).
 
 | # | State (IN1, IN2) | Pass (DMM J3.1 − J3.3) | Result |
 |---|---|---|---|
-| 6.1 | nSLEEP_HB low (asleep) | ≈ 0 V, both outputs floating | |
-| 6.2 | Forward (1, 0) | +4.7 V to +5.1 V | |
-| 6.3 | Reverse (0, 1) | −4.7 V to −5.1 V | |
-| 6.4 | Brake (1, 1) | ≈ 0 V | |
-| 6.5 | VISEN in all states | asleep < 2 mV; awake: record the no-load offset per state (cam02 11/12: ~4.4 mV, ~5.5 mV in reverse; see VISEN_SCALE.md) | |
+| 6.1 | nSLEEP_HB low (asleep) | ≈ 0 V, both outputs floating || PARTIAL 11/12: asleep TP16 0.001 V, TP21/TP18 0.000 V (Nick), VISEN 0.02 mV; J3 not read |
+| 6.2 | Forward (1, 0) | +4.7 V to +5.1 V || PASS 11/12: J3.1-J3.3 +4.9 V (Nick); VISEN 4.37 mV, no load |
+| 6.3 | Reverse (0, 1) | −4.7 V to −5.1 V || PASS 11/12: Nick "Yes, I agree with your expected values" (exact J3 value not given); VISEN 5.44 mV |
+| 6.4 | Brake (1, 1) | ≈ 0 V || PASS 11/12: Nick "Yes I agree with you expectations" (exact values not given); VISEN 5.44 mV |
+| 6.5 | VISEN in all states | asleep < 2 mV; awake: record the no-load offset per state (cam02 11/12: ~4.4 mV, ~5.5 mV in reverse; see VISEN_SCALE.md) || RECORDED 11/12: asleep 0.02 mV; awake 4.36 mV fwd, 5.44-5.49 mV rev. **Bar changed after the data** (was "< 2 mV" in all states; 5399ad9, minutes after these runs) |
 
 ## Stage 7: motor on J3, free shaft (no seal), DMM in series
 
@@ -127,10 +139,10 @@ Motor leads to J3.1/2 and J3.3/4. DMM on its mA range in series with one lead.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 7.1 | Shaft turns forward then back each wipe | yes, both directions | |
-| 7.2 | Logger mean current vs DMM, steady part of a stroke | within ±15 % or ±5 mA, whichever is bigger (VISEN is below the datasheet's ±5 % range here; this sets the calibration) | |
-| 7.3 | Pi stays up, `vcgencmd get_throttled` | `0x0` | |
-| 7.4 | Free-run current (median of 3 wipes) | record: it's the no-load current for the torque margin | |
+| 7.1 | Shaft turns forward then back each wipe | yes, both directions || PASS 11/13: 260:1 and 1000:1 both turned both ways (Nick); reverse sounds slower on both |
+| 7.2 | Logger mean current vs DMM, steady part of a stroke | within ±15 % or ±5 mA, whichever is bigger (VISEN is below the datasheet's ±5 % range here; this sets the calibration) || SKIPPED 11/13: no DMM in series (motor leads already on the connector, Nick); VISEN not calibrated |
+| 7.3 | Pi stays up, `vcgencmd get_throttled` | `0x0` || PASS 11/13: throttled=0x0 before and after, both motors |
+| 7.4 | Free-run current (median of 3 wipes) | record: it's the no-load current for the torque margin || RECORDED 11/13, free shaft, 3 s + 3 s x 3: 260:1 fwd 78-84 / rev 88-97 mA; 1000:1 fwd 90-108 / rev 121-133 mA (`2026-11-13_motor_free_260`, `_1000`) |
 
 ## Stage 8: real seal and brush (energy per wipe)
 
@@ -140,9 +152,9 @@ without hitting an end stop (or the run stops on stall and that is recorded).
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 8.1 | 10 wipes, energy per wipe (J) | all 10 complete; report median and min–max | |
-| 8.2 | Peak and mean current per stroke | peak < the stall cut-off (no false stalls) | |
-| 8.3 | Torque margin estimate = (I_stall − I_noload) / (I_peak − I_noload) | report; E2 asked for ≥ 2× (card `p_e2_drive`: "A gives ~2.2×") | |
+| 8.1 | 10 wipes, energy per wipe (J) | all 10 complete; report median and min–max || not run (this stage's `wipe_logger.py` 10-wipe run; the jog bench runs are listed in WIPER_BENCH.md instead) |
+| 8.2 | Peak and mean current per stroke | peak < the stall cut-off (no false stalls) || not run |
+| 8.3 | Torque margin estimate = (I_stall − I_noload) / (I_peak − I_noload) | report; E2 asked for ≥ 2× (card `p_e2_drive`: "A gives ~2.2×") || not run |
 | 8b | Optional, only if Nick fits the 10 k + 10 k divider on TP5 (see VISEN_SCALE.md): rerun 8.1 with `--vbus-divider 2.0` | record the minimum +5V during a stroke; ≥ 4.75 V | |
 
 ## Stage 9: stall (short)
@@ -152,12 +164,33 @@ Nick holds the brush still by hand (or a fixed stop) and runs one stroke.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 9.1 | Software cut-off fires | motor off within `--stall-ms` + 50 ms of the current crossing `--stall-amps` | |
-| 9.2 | Stall current (median of 3) | record; feeds 8.3 | |
-| 9.3 | Motor and gearbox after 3 stalls | still run freely (repeat 7.1) | |
+| 9.1 | Software cut-off fires | motor off within `--stall-ms` + 50 ms of the current crossing `--stall-amps` || not run |
+| 9.2 | Stall current (median of 3) | record; feeds 8.3 || not run |
+| 9.3 | Motor and gearbox after 3 stalls | still run freely (repeat 7.1) || not run |
 
 Defaults: `--stall-amps 0.25`, `--stall-ms 150`. They fit a Pololu #4791 at 5 V (stall ≈ 0.30 A if stall current
 scales with voltage from Pololu's 0.36 A at 6 V; an estimate). Nick changes them for another motor.
+
+## Stage 10 (PROPOSED, needs Nick's OK): wiper repeat for the production method
+
+Pre-registered here before any run (QE 019, B1). Method: the jog bench's **simple** method, pot streamed during
+moves, learned brake leads saved across restarts (`motion_cal.json`). Rig: the **rigid printed mount** (not hand-held),
+1000:1 motor (record its part number), real brush on the raised surface, cam02 with the services in
+`services_disabled_2026-11-15.txt` stopped.
+
+Run: **3 runs** of **30 wipes** each, 0 -> +90 -> 0 deg at 100 %, 0.3 s rest at each end, each run started right
+after a `jog-bench` restart (so the first stroke after a restart counts). Error = pot angle 0.25 s after the brake
+minus the target (pot degrees; scale 98.3 deg/V, +-10 %).
+
+| # | Step | Pass | Result |
+|---|---|---|---|
+| 10.1 | Every stroke, all 3 runs | each run: at least 58 of 60 strokes within 3 deg; no stroke over 5 deg | |
+| 10.2 | First stroke after the restart | within 3 deg in all 3 runs | |
+| 10.3 | Safety | no stop of any kind (cut-off, no motion, heartbeat, pot); `throttled=0x0` before and after | |
+| 10.4 | Energy per wipe | record median and min-max per run | |
+| 10.5 | Control-loop pauses (`/api/loop` saved after each run) | record; none over 20 ms during a move | |
+
+A fail on 10.1-10.3 means the method is not ready; the card says which run and stroke. No retries to get a pass.
 
 ## Outputs
 

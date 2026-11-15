@@ -75,10 +75,17 @@ STALL_S = 0.015  # a control-loop step later than this is logged with what took 
 GIL_SWITCH_S = 0.0005  # hand Python's interpreter lock between threads this often (default 5 ms): after each I2C
 # read the control thread waited up to 5 ms behind the web threads, 9-17 ms per step (cam02 11/15, /api/loop)
 STATUS_MAX_AGE_S = 0.04  # stream clients share one status built at most this often
+# Outside moves (hold, timed wipe cycles, Runs): stop when the pot hasn't moved 0.5 deg in the no-motion window while
+# the motor draws at least NO_MOTION_MIN_A. QE 019 (11/15): a stall under the cut-off could drive for minutes in cycle
+# mode. The current floor keeps free-spinning runs with the pot uncoupled (~80-140 mA, 11/13) from tripping it.
+NO_MOTION_MIN_A = 0.15
+TRACK_END_DEG = 3.0  # manual holds stop this short of either end of the pot's safe track (dead zone beyond)
+MAX_BODY = 65536  # bytes accepted in a POST body
+MOTION_CAL_PATH = os.path.expanduser("~/NereusData/UrchinCam/motion_cal.json")  # learned brake leads, kept across restarts
 # Move methods. "simple": drive at the set speed, brake one learned lead before the target (lead_s).
 # "approach": drive at the set speed until APPROACH_DEG out, then APPROACH_DUTY (raised by APPROACH_BUMP every
 # BUMP_EVERY_S while slower than SPEED_FLOOR_DPS, e.g. on the brush's raised surface), and brake with a lead learned
-# per direction and region. cam02 11/15 free shaft: 60 % ~105 deg/s and ~3 deg coast vs ~9 deg at 100 %.
+# per direction and region. cam02 11/15, 1000:1 on the shaft with the seal: 60 % ~96-115 deg/s and ~3 deg coast vs ~9 deg at 100 %.
 METHODS = ("simple", "approach")
 APPROACH_DEG = 25.0
 APPROACH_DUTY = 0.6
@@ -141,6 +148,8 @@ class JogController:
         self.pot_hist = collections.deque(maxlen=4)
         self.lead_s = LEAD_S
         self.leads = {}  # approach method: learned lead per (direction sign, region)
+        self.dp_angle, self.dp_t = None, 0.0
+        self.motion_cal_path = None  # set by main(): learned leads are saved there and loaded at start
         self.move_method = "simple"
         self.move_log = collections.deque(maxlen=500)  # one record per finished move (Jog page, comparisons)
         self.move_seq = 0
@@ -173,7 +182,7 @@ class JogController:
             elif kind == "goto":
                 items = [("to", value, True, f"go to {value:g}°")]
             elif kind == "wipe":
-                n = min(MAX_CYCLES, max(1, int(cycles)))
+                n = min(MAX_CYCLES, max(1, int(min(float(cycles), MAX_CYCLES))))
                 p = min(PAUSE_S[1], max(PAUSE_S[0], float(pause_s)))
                 start, items = self.angle, []
                 for i in range(1, n + 1):
@@ -215,7 +224,7 @@ class JogController:
                 if self.state != "asleep" or self.cycle or self.run:
                     raise ValueError("stop the motor before a wipe cycle")
                 s = min(CYCLE_S[1], max(CYCLE_S[0], float(seconds)))
-                n = min(MAX_CYCLES, max(1, int(cycles)))
+                n = min(MAX_CYCLES, max(1, int(min(float(cycles), MAX_CYCLES))))
                 p = min(PAUSE_S[1], max(PAUSE_S[0], float(pause_s)))
                 self.cycle = {"s": s, "n": n, "i": 1, "done": 0, "stage": "fwd", "pause_s": p, "pause_until": None}
                 self.cycle_i, self.cycle_result, self.run = 1, None, run
@@ -272,6 +281,7 @@ class JogController:
         self.motor.forward(duty) if direction == "fwd" else self.motor.reverse(duty)
         self.duty = duty
         self.pwm_reset_done, self.nocur_since = False, None
+        self.dp_angle, self.dp_t = self.angle, now  # last time the shaft was seen moving (no-motion guard)
         self.state = self.drive_dir = direction
         self.drive_start = now
         self.peak = 0.0
@@ -369,6 +379,7 @@ class JogController:
                 self.pot_hist.append((now, self.angle))
             p2 = time.perf_counter()
             self._move_step(now, pot_v is not None)
+            self._drive_guard(now, pot_v is not None)
             self.tick_parts = (p1 - p0, p2 - p1, time.perf_counter() - p2)  # ADC sample, pot, move logic (s)
             self.seq += 1
             row = {"seq": self.seq, "t_s": t, "state": self.state, "amps": s["amps"], "visen_v": s["visen_v"],
@@ -439,6 +450,57 @@ class JogController:
             self.pot_errors += 1
         return v
 
+    def _drive_guard(self, now, fresh):
+        """Outside moves (moves have their own checks): no motion while drawing current -> stop; manual holds also
+        stop at the ends of the pot's safe track and when the pot reading is untrusted (dead zone)."""
+        if self.state not in ("fwd", "rev") or self.move or not self.pot or self.angle is None:
+            return
+        if self.dp_angle is None:
+            self.dp_angle, self.dp_t = self.angle, now
+        if fresh and self.pot.ok and abs(self.angle - self.dp_angle) >= 0.5:
+            self.dp_angle, self.dp_t = self.angle, now
+        if not self.cycle:  # a hold (Drive or Jog page)
+            if not self.pot.ok:
+                return self._stop(now, "pot reading unreliable (dead zone?)")
+            room = self.pot.room_deg()
+            up = (self.state == "fwd") == (self.pot.cal["sign"] > 0)  # forward raises the pot voltage
+            if room and room["plus" if up else "minus"] < TRACK_END_DEG:
+                return self._stop(now, "end of the pot's safe track")
+        window = NO_MOTION_S + GAP_DEG / (FULL_SPEED_DPS * self.duty)
+        if now - self.dp_t > window:
+            recent = [r["amps"] for r in list(self.buf)[-int(0.3 * 860):] if r["state"] == self.state]
+            amps = statistics.median(recent) if recent else 0.0
+            if amps >= NO_MOTION_MIN_A:
+                self._stop(now, f"no motion for {window:.1f} s at {amps * 1000:.0f} mA (stalled?)")
+            else:
+                self.dp_t = now  # turning freely with the pot uncoupled: check again next window
+
+    def load_motion_cal(self, path):
+        """Learned brake leads from the last session: QE 019 found the first wipe after a restart missed by 4-7 deg
+        in 4 of 5 runs (11/15), with the lead back at its untrained start value."""
+        self.motion_cal_path = path
+        try:
+            with open(path) as f:
+                cal = json.load(f)
+            self.lead_s = min(LEAD_S_RANGE[1], max(LEAD_S_RANGE[0], float(cal["lead_s"])))
+            for k, v in cal.get("leads", {}).items():
+                sign, region = k.split(",")
+                self.leads[(int(sign), region)] = min(LEAD_S_RANGE[1], max(LEAD_S_RANGE[0], float(v)))
+        except (OSError, ValueError, KeyError):
+            pass
+
+    def _save_motion_cal(self):
+        if not self.motion_cal_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.motion_cal_path), exist_ok=True)
+            tmp = self.motion_cal_path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump({"lead_s": self.lead_s, "leads": {f"{k[0]},{k[1]}": v for k, v in self.leads.items()}}, f)
+            os.replace(tmp, self.motion_cal_path)
+        except OSError:
+            pass
+
     def _check_drive_current(self, now, amps):
         """11/15: a long-running server once drove 0 mA at every duty below 100 %. Re-create the PWM once, then stop."""
         if self.duty >= 1.0 or now - self.drive_start < 0.1 or amps >= NO_CURRENT_A:
@@ -491,7 +553,7 @@ class JogController:
                              "method": self.move_method, "start": self.angle, "t_start": now, "energy_j": 0.0,
                              "peak_a": 0.0}
         if m["phase"] == "drive":
-            if self.state not in ("fwd", "rev"):  # a safety stop already braked and cancelled; nothing to do
+            if self.state not in ("fwd", "rev"):  # a safety stop already braked and canceled; nothing to do
                 return
             if not self.pot.ok:
                 return self._stop(now, f"{m['label']}: pot reading unreliable (dead zone?)")
@@ -540,6 +602,7 @@ class JogController:
                 self.leads[key] = new
             else:
                 self.lead_s = new
+            self._save_motion_cal()
         if not self.pot.ok:
             self._event(now, f"{m['label']}: stopped in the pot's dead zone, angle unknown")
             return self._cancel_moves(now, "pot in its dead zone")
@@ -789,7 +852,9 @@ class StatusCache:
             return self.text
 
 
-def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
+def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT, hosts=None):
+    """`hosts`: Host headers allowed for POSTs (None = any, desk tests only). QE 019 (11/15): a page on another site
+    could POST text/plain to /cmd and run the motor. POSTs must be JSON, to an allowed Host, from that same origin."""
     page = os.path.join(HERE, "jog_page.html")
     runs_page = os.path.join(HERE, "runs_page.html")
     status_cache = StatusCache(ctrl, extra)
@@ -882,9 +947,32 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
             else:
                 self._send(404, '{"error": "not found"}')
 
+        def _post_refusal(self):
+            ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                return 415, "POST bodies must be application/json"
+            host = self.headers.get("Host", "")
+            if hosts is not None and host not in hosts:
+                return 403, "unknown Host"
+            origin = self.headers.get("Origin")
+            if origin is not None and origin != f"http://{host}":
+                return 403, "cross-origin request refused"
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                return 400, "bad Content-Length"
+            if n < 0 or n > MAX_BODY:
+                return 413, "body too large"
+            return None
+
         def do_POST(self):
+            refused = self._post_refusal()
+            if refused:
+                return self._send(refused[0], json.dumps({"error": refused[1]}))
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                if not isinstance(body, dict):
+                    raise ValueError("body must be a JSON object")
                 if self.path == "/cmd":
                     ctrl.request(body["action"], body.get("seconds"), duty=body.get("duty", 1.0))
                 elif self.path == "/move":
@@ -906,10 +994,28 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
                 else:
                     return self._send(404, '{"error": "not found"}')
                 self._send(200, '{"ok": true}')
-            except (ValueError, KeyError, TypeError) as e:
+            except (ValueError, KeyError, TypeError, OverflowError, AttributeError) as e:
                 self._send(400, json.dumps({"error": str(e)}))
 
     return Handler
+
+
+def safe_tick(ctrl, motor):
+    """One control step. On any exception the bridge is put to sleep and the fault shown, never left driving with
+    nobody watching the current. Returns (row, ok)."""
+    try:
+        return ctrl.tick(), True
+    except Exception as e:
+        motor.sleep()
+        ctrl.fault = f"controller stopped: {e!r}"
+        ctrl.state = "asleep"  # the pages show Stopped, not the last drive state
+        print(ctrl.fault, file=sys.stderr, flush=True)
+        return None, False
+
+
+def allowed_hosts(addrs, port):
+    """Host headers the bench answers POSTs for: its bound addresses and localhost (SSH tunnel)."""
+    return {f"{a}:{port}" for a in list(addrs) + ["localhost", "127.0.0.1"]}
 
 
 def main(argv=None):
@@ -931,7 +1037,15 @@ def main(argv=None):
 
     run_dir = wl.make_run_dir("jog_" + datetime.datetime.now().strftime("%H%M%S"))
     gpio = hw.open_gpio(prefer_lgpio=True)  # gpiozero device swaps + LED PWM lost the motor PWM (cam02 11/15)
-    motor = hw.Motor(gpio)
+    motor = hw.Motor(gpio)  # starts asleep
+    try:
+        serve(args, hw, gpio, motor, run_dir)
+    finally:  # any exit, a SIGTERM during start-up included: bridge asleep, pins released
+        motor.sleep()
+        gpio.close()
+
+
+def serve(args, hw, gpio, motor, run_dir):
     dev = hw.I2CDevice(hw.ADS1115_ADDR)
     adc = hw.ADS1115(dev, fsr=args.fsr, rate=args.rate)
     sampler = wl.Sampler(adc, args.fsr, args.r_iset)
@@ -948,6 +1062,7 @@ def main(argv=None):
     pot = potmod.PotAngle(potmod.load_cal(), path=potmod.CAL_PATH) if args.pot_every > 0 else None
     ctrl = JogController(motor, sampler, show=leds.show if leds else (lambda phase: None), rate=args.rate,
                          pot=pot, pot_every=args.pot_every)
+    ctrl.load_motion_cal(MOTION_CAL_PATH)
     rec = Recorder(run_dir)
     extra = {"throttled": throttled(), "fsr": args.fsr, "run_dir": run_dir, "i2c_retries": 0,
              "sha": deployed_sha()}
@@ -969,12 +1084,8 @@ def main(argv=None):
                 ctrl.loop.record(time.monotonic() - ctrl.t0, start - prev_start, ctrl.tick_parts, write_s,
                                  ctrl.loop.gc_s - gc_mark, sleep_plan, sleep_got, threading.active_count())
             prev_start, gc_mark = start, ctrl.loop.gc_s
-            try:
-                row = ctrl.tick()
-            except Exception as e:  # never leave the bridge driving with nobody watching the current
-                motor.sleep()
-                ctrl.fault = f"controller stopped: {e!r}"
-                print(ctrl.fault, file=sys.stderr, flush=True)
+            row, ok = safe_tick(ctrl, motor)
+            if not ok:
                 return
             w0 = time.perf_counter()
             if row is not None and ctrl.logging_now():
@@ -996,8 +1107,10 @@ def main(argv=None):
     worker.start()
     servers = []
     try:
-        for addr in bind_addresses(args.bind):
-            srv = ThreadingHTTPServer((addr, args.port), make_handler(ctrl, extra))
+        addrs = bind_addresses(args.bind)
+        hosts = allowed_hosts(addrs, args.port)
+        for addr in addrs:
+            srv = ThreadingHTTPServer((addr, args.port), make_handler(ctrl, extra, hosts=hosts))
             srv.daemon_threads = True
             servers.append(srv)
             print(f"jog bench on http://{addr}:{args.port}  (runs page /runs)", flush=True)
@@ -1018,7 +1131,6 @@ def main(argv=None):
             adc.stop()
         finally:
             dev.close()
-            gpio.close()
 
 
 def _on_sigterm(*_):
