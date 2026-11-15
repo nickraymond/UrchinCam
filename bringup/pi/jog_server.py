@@ -354,7 +354,7 @@ class JogController:
                 self.move["energy_j"] += max(s["amps"], 0.0) * br.VBUS_NOMINAL * (now - self.prev_t)  # 5 V assumed, no divider
                 self.move["peak_a"] = max(self.move["peak_a"], s["amps"])
             self.prev_t = now
-            pot_v = self._read_pot(fast_pot_v)
+            pot_v = self._read_pot(fast_pot_v, now)
             if pot_v is not None:
                 self.pot_hist.append((now, self.angle))
             self._move_step(now, pot_v is not None)
@@ -399,13 +399,14 @@ class JogController:
             return dict(self.last_cur, fresh_cur=True), v
         return dict(self.last_cur, fresh_cur=False), v
 
-    def _read_pot(self, fast_v=None):
+    def _read_pot(self, fast_v=None, now=None):
         """Every pot_every ticks: AIN2 single-shot (the ADC leaves continuous mode), then AIN0 continuous again.
         Costs about one conversion plus the restart, so the current rate drops a little (see the status).
         While a move streams the pot (fast_v), every tick has a reading and nothing is switched."""
+        stamp = now if now is not None else self.clock()  # the step's start: the sample is no newer than this
         if fast_v is not None:
             self.pot_v = fast_v
-            self.angle = self.pot.update(fast_v, self.clock())
+            self.angle = self.pot.update(fast_v, stamp)
             return fast_v
         if self.fast:
             return None
@@ -417,7 +418,7 @@ class JogController:
         try:
             v = self.sampler.adc.single_shot(potmod.POT_CHANNEL, potmod.POT_FSR)[1]
             self.pot_v = v
-            self.angle = self.pot.update(v, self.clock())
+            self.angle = self.pot.update(v, stamp)
         except (OSError, TimeoutError):
             self.pot_errors += 1
         try:

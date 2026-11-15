@@ -12,6 +12,10 @@ The dead zone (cam02 11/15, ~/NereusData/UrchinCam/2026-11-15_jog_*): past 3.35 
 end terminal) or floats near 0.57 V (touching nothing; unused ADC inputs float at ~0.57 V too). Both look like real
 track positions, so a reading that jumps further than the shaft can turn between two reads is held as unreliable
 (`ok` False) until three readings in a row agree again. Moves refuse targets outside SAFE_V.
+
+Away from the track ends, three readings that form a possible path (each step no faster than MAX_DPS) are also
+trusted again, so a move doesn't stop when the control loop stalls (cam02 11/15: a 51 ms gap, the shaft turned 14 deg
+in it). Callers stamp readings with when the sample was taken (`t`), not when Python got to it.
 """
 
 import json
@@ -56,7 +60,7 @@ class PotAngle:
         self.last_t = None
         self.angle = None
         self.ok = True  # False while readings are unreliable (dead zone)
-        self.suspect = []  # readings since the last trusted one
+        self.suspect = []  # (volts, t) of readings since the last trusted one
 
     @property
     def period_v(self):
@@ -74,11 +78,16 @@ class PotAngle:
             jump_deg = abs(v + k * self.period_v - self.last_v) * self.cal["deg_per_v"]
             # once unreliable, stay so until re-trusted below (a long stay would make any jump look "plausible")
             if not self.ok or jump_deg > MAX_DPS * dt + 3.0:
-                self.suspect.append(v)
+                self.suspect.append((v, t))
                 near_end = lambda x: x < END_V or x > TRACK_V - END_V
-                agree = len(self.suspect) >= 3 and max(self.suspect[-3:]) - min(self.suspect[-3:]) <= AGREE_V
-                if agree and (near_end(v) or not near_end(self.last_v)):
-                    self.suspect = []  # out of the dead zone, or settled after a fast hand turn: trust it
+                last3 = [x for x, _ in self.suspect[-3:]]
+                agree = len(self.suspect) >= 3 and max(last3) - min(last3) <= AGREE_V
+                path = len(self.suspect) >= 3 and all(
+                    abs(self.suspect[i][0] - self.suspect[i - 1][0]) * self.cal["deg_per_v"]
+                    <= MAX_DPS * max(self.suspect[i][1] - self.suspect[i - 1][1], 0.005) + 3.0
+                    for i in (-2, -1)) and not any(near_end(x) for x in last3)
+                if (agree and (near_end(v) or not near_end(self.last_v))) or (path and not near_end(self.last_v)):
+                    self.suspect = []  # out of the dead zone, settled after a fast hand turn, or a stall: trust it
                 else:
                     self.ok = False
                     return self.angle  # hold the last good angle

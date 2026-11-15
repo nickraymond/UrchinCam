@@ -710,6 +710,16 @@ class TestJog(unittest.TestCase):
         self.assertTrue(p.ok)
         self.assertAlmostEqual(a, (360 / 98.3 - 3.0) * 98.3, delta=0.1)
 
+    def test_loop_stall_mid_move_is_re_trusted(self):
+        # cam02 11/15: readings 6 ms apart, then a 51 ms stall while the shaft kept turning at ~280 deg/s
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=0.774))
+        pts = [(8.20062, 1.38688), (8.20671, 1.40600), (8.21270, 1.42063), (8.21280, 1.5655),  # mis-stamped
+               (8.2165, 1.5755), (8.2203, 1.5860)]
+        for t, v in pts:
+            p.update(v, t)
+        self.assertTrue(p.ok)  # a possible path after the jump: trusted again without stopping
+        self.assertAlmostEqual(p.angle, (1.5860 - 0.774) * 98.3, delta=0.1)
+
     def test_fast_hand_turn_mid_track_is_re_trusted(self):
         p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
         p.update(1.0, 0.0)
