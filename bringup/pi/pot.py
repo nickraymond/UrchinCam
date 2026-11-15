@@ -7,6 +7,11 @@ on the assumption that a full turn is 360 deg. Readings in the gap are not trust
 
 Unwrapping: a step of more than half a turn between two readings is taken as crossing the gap, so the angle keeps
 counting through it instead of jumping by a full turn.
+
+The dead zone (cam02 11/15, ~/NereusData/UrchinCam/2026-11-15_jog_*): past 3.35 V the wiper reads exactly 0 V (on the
+end terminal) or floats near 0.57 V (touching nothing; unused ADC inputs float at ~0.57 V too). Both look like real
+track positions, so a reading that jumps further than the shaft can turn between two reads is held as unreliable
+(`ok` False) until three readings in a row agree again. Moves refuse targets outside SAFE_V.
 """
 
 import json
@@ -17,6 +22,11 @@ POT_FSR = 4.096  # the pot spans 0-3.35 V
 DEFAULT_CAL = {"deg_per_v": 98.3, "sign": 1, "zero_v": None,
                "source": "cam02 11/13: 11 hand turns of ~90 deg, median 0.916 V (0.82-1.07 V), about +-10 %"}
 CAL_PATH = os.path.expanduser("~/NereusData/UrchinCam/pot_cal.json")
+SAFE_V = (0.10, 3.25)  # moves stay inside this part of the track (it reads 0-3.35 V; the dead zone is past both ends)
+MAX_DPS = 600.0  # the shaft can't turn faster than this (cam02 full speed ~325 deg/s); a faster jump is a bad reading
+AGREE_V = 0.03  # readings agreeing within this, three in a row, are trusted again after a bad one...
+END_V = 0.35  # ...but after leaving the track at one end, only near an end: the floating ~0.57 V is steady too
+TRACK_V = 3.35
 
 
 def load_cal(path=CAL_PATH):
@@ -43,25 +53,56 @@ class PotAngle:
         self.path = path
         self.turns = 0  # full turns counted across the gap since the last zero
         self.last_v = None
+        self.last_t = None
         self.angle = None
+        self.ok = True  # False while readings are unreliable (dead zone)
+        self.suspect = []  # readings since the last trusted one
 
     @property
     def period_v(self):
         return 360.0 / self.cal["deg_per_v"]  # volts one full turn would span if the track had no gap
 
-    def update(self, v):
+    def _turn_step(self, v):
+        step = v - self.last_v
+        return 1 if step < -self.period_v / 2 else -1 if step > self.period_v / 2 else 0
+
+    def update(self, v, t=None):
+        """`t` (seconds) enables the plausibility check; without it every reading is trusted (desk tests)."""
+        if self.last_v is not None and t is not None and self.last_t is not None:
+            dt = max(t - self.last_t, 0.005)
+            k = self._turn_step(v)
+            jump_deg = abs(v + k * self.period_v - self.last_v) * self.cal["deg_per_v"]
+            # once unreliable, stay so until re-trusted below (a long stay would make any jump look "plausible")
+            if not self.ok or jump_deg > MAX_DPS * dt + 3.0:
+                self.suspect.append(v)
+                near_end = lambda x: x < END_V or x > TRACK_V - END_V
+                agree = len(self.suspect) >= 3 and max(self.suspect[-3:]) - min(self.suspect[-3:]) <= AGREE_V
+                if agree and (near_end(v) or not near_end(self.last_v)):
+                    self.suspect = []  # out of the dead zone, or settled after a fast hand turn: trust it
+                else:
+                    self.ok = False
+                    return self.angle  # hold the last good angle
+            else:
+                self.suspect = []
+        self.ok = True
         if self.last_v is not None:
-            step = v - self.last_v
-            if step < -self.period_v / 2:
-                self.turns += 1
-            elif step > self.period_v / 2:
-                self.turns -= 1
-        self.last_v = v
+            self.turns += self._turn_step(v)
+        self.last_v, self.last_t = v, t
         if self.cal["zero_v"] is None:  # first reading after a fresh install: call it 0 deg
             self.cal["zero_v"] = v
         u = v + self.turns * self.period_v
         self.angle = self.cal["sign"] * (u - self.cal["zero_v"]) * self.cal["deg_per_v"]
         return self.angle
+
+    def room_deg(self):
+        """Degrees the angle can still go up and down before leaving SAFE_V (None until there's a reading)."""
+        if self.last_v is None:
+            return None
+        up_v, down_v = SAFE_V[1] - self.last_v, self.last_v - SAFE_V[0]  # pot volts left either way
+        k = self.cal["deg_per_v"]
+        if self.cal["sign"] > 0:
+            return {"plus": round(up_v * k, 1), "minus": round(down_v * k, 1)}
+        return {"plus": round(down_v * k, 1), "minus": round(up_v * k, 1)}
 
     def zero_here(self):
         if self.last_v is not None:

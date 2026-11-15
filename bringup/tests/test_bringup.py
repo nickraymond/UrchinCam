@@ -71,15 +71,18 @@ class SimMotorADC:
         gpio.output = output
         self.wipe_phase = None
 
-    # A shaft pot on AIN2 that turns with the motor at pot_vps volts per second. Like cam02's (11/13): the track reads
-    # 0-3.35 V over ~330 deg, and the ~30 deg gap after it (360/98.3 = 3.662 V of travel per turn) reads 0.
+    # A shaft pot on AIN2 that turns with the motor at pot_vps volts per second. Like cam02's (11/13, 11/15): the track
+    # reads 0-3.35 V over ~330 deg; in the ~30 deg dead zone after it (360/98.3 = 3.662 V of travel per turn) the
+    # wiper first floats (~0.57 V, like an unused input), then sits on the 0 V end terminal.
     pot_u, pot_vps, pot_last_t = 1.5, 0.5, None
     POT_TURN_V, POT_TRACK_V = 360 / 98.3, 3.35
 
     @property
     def pot_v(self):
         v = self.pot_u % self.POT_TURN_V
-        return v if v <= self.POT_TRACK_V else 0.0
+        if v <= self.POT_TRACK_V:
+            return v
+        return 0.57 if v < self.POT_TRACK_V + 0.2 else 0.0
 
     def start_continuous(self, channel, fsr=None):
         pass
@@ -566,7 +569,7 @@ class TestJog(unittest.TestCase):
 
     def test_wipe_by_angle(self):
         ctrl = self._mover()
-        self.adc.pot_u = 2.6  # start near the top of the track so each wipe crosses the gap
+        self.adc.pot_u = 1.0  # 180 deg up from here stays on the track
         self._run_for(ctrl, 0.1)
         a0 = ctrl.angle
         ctrl.request_move("wipe", 180, duty=1.0, cycles=3, pause_s=0.2)
@@ -577,8 +580,49 @@ class TestJog(unittest.TestCase):
         self.assertEqual(ctrl.status()["move"], None)
         errs = [float(e["text"].split("error ")[1].split("°")[0]) for e in ctrl.events if "error" in e["text"]]
         self.assertEqual(len(errs), 6)
-        self.assertTrue(all(abs(x) < 12 for x in errs), errs)  # no early stops at the gap; wipes don't correct
+        self.assertTrue(all(abs(x) < 12 for x in errs), errs)  # wipes don't correct
         self.assertAlmostEqual(ctrl.angle, a0, delta=12)
+
+    def test_moves_into_the_dead_zone_are_refused(self):
+        ctrl = self._mover()
+        self.adc.pot_u = 2.58  # where Nick had zeroed on 11/15: ~66 deg below the top of SAFE_V
+        self._run_for(ctrl, 0.2)
+        room = ctrl.status()["room"]
+        self.assertAlmostEqual(room["plus"], (3.25 - 2.58) * 98.3, delta=1)
+        with self.assertRaises(ValueError) as cm:
+            ctrl.request_move("wipe", 90, cycles=5)
+        self.assertIn("dead zone", str(cm.exception))
+        ctrl.request_move("step", -90)  # the other way is fine
+        self._run_for(ctrl, 3.0)
+        self.assertTrue(ctrl.pot.ok)
+
+    def test_dead_zone_readings_are_not_trusted(self):
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=3.0))
+        t = 0.0
+        for v in (3.20, 3.27, 3.33):  # shaft turning up at ~70 deg/s, read every 0.1 s
+            t += 0.1
+            a = p.update(v, t)
+        good = a
+        for v in (0.749, 0.575, 0.649, 0.57, 0.57, 0.57, 0.57):  # floats in the dead zone, then sits still
+            t += 0.01
+            self.assertEqual(p.update(v, t), good)
+            self.assertFalse(p.ok)
+        t += 1.0  # a long rest must not make 0.57 V "plausible"
+        self.assertEqual(p.update(0.57, t), good)
+        self.assertFalse(p.ok)
+        for v in (0.0, 0.0, 0.0):  # comes out on the 0 V end of the track: trusted again, counted past the gap
+            t += 0.01
+            a = p.update(v, t)
+        self.assertTrue(p.ok)
+        self.assertAlmostEqual(a, (360 / 98.3 - 3.0) * 98.3, delta=0.1)
+
+    def test_fast_hand_turn_mid_track_is_re_trusted(self):
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
+        p.update(1.0, 0.0)
+        for i, v in enumerate((2.0, 2.0, 2.0)):  # jumped 98 deg in 10 ms (too fast), then stayed there
+            p.update(v, 0.01 * (i + 1))
+        self.assertTrue(p.ok)
+        self.assertAlmostEqual(p.angle, 98.3, delta=0.1)
 
     def test_no_motion_stops(self):
         ctrl = self._mover(vps=0.0)  # shaft held: the pot never moves

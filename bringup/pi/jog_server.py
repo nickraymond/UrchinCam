@@ -51,10 +51,11 @@ SENSOR_FAIL_N = 20  # consecutive failed ADC reads (~25 ms) while driving -> sto
 # Moves to an angle (Jog page). The pot is read every MOVE_POT_EVERY samples while a move runs (~100 Hz on cam02).
 MOVE_POT_EVERY = 2
 DUTY = (0.05, 1.0)
-LEAD_S = 0.02  # brake this long before the target at the current speed (pot latency + braking)
+LEAD_S = 0.04  # start: brake this long before the target at the current speed (pot latency + braking);
+LEAD_S_RANGE = (0.0, 0.15)  # learned from each landing's overshoot (lead += overshoot / speed / 2)
 SETTLE_S = 0.15  # wait after the brake before judging where the shaft stopped
 TOL_DEG = 0.75  # a step or go-to within this is done; outside it, a slow correction move
-CORR_DUTY = 0.3  # speed cap for corrections
+CORR_DUTY = 0.5  # speed cap for corrections (0.3 couldn't turn the seal on cam02, 11/15)
 MAX_TRIES = 3  # corrections per target
 NO_MOTION_S = 0.6  # driving but the angle moved < 0.5 deg in this long -> stop (stalled, or too slow to turn);
 GAP_DEG = 35.0  # ...plus the time to cross the pot's ~30 deg gap, where the reading doesn't move, at this speed
@@ -112,6 +113,7 @@ class JogController:
         self.wait_until = None
         self.move_total = 0
         self.pot_hist = collections.deque(maxlen=4)
+        self.lead_s = LEAD_S
 
     # --- HTTP side ---
     def request_move(self, kind, value, duty=1.0, cycles=1, pause_s=0.3):
@@ -120,6 +122,8 @@ class JogController:
         with self.lock:
             if not self.pot or self.angle is None:
                 raise ValueError("no pot reading")
+            if not self.pot.ok:
+                raise ValueError("the pot is in its dead zone (angle unknown): turn the arm back onto the track")
             if self.state != "asleep" or self.cycle or self.run or self.move or self.moves:
                 raise ValueError("stop the motor first")
             duty = min(DUTY[1], max(DUTY[0], float(duty)))
@@ -139,6 +143,12 @@ class JogController:
                         items.append(("pause", p))
             else:
                 raise ValueError(kind)
+            room = self.pot.room_deg()
+            for it in items:
+                if it[0] == "to" and not -room["minus"] <= it[1] - self.angle <= room["plus"]:
+                    raise ValueError(f"{it[3]} would run into the pot's dead zone: from here the arm can go "
+                                     f"+{room['plus']:.0f}° / -{room['minus']:.0f}°. Rotate the pot on the shaft so "
+                                     f"the working range sits mid-track.")
             self.moves.extend(items)
             self.move_total = sum(1 for it in items if it[0] == "to")
             self.move_duty = duty
@@ -331,7 +341,7 @@ class JogController:
         try:
             v = self.sampler.adc.single_shot(potmod.POT_CHANNEL, potmod.POT_FSR)[1]
             self.pot_v = v
-            self.angle = self.pot.update(v)
+            self.angle = self.pot.update(v, self.clock())
         except (OSError, TimeoutError):
             self.pot_errors += 1
         try:
@@ -367,12 +377,15 @@ class JogController:
         if m["phase"] == "drive":
             if self.state not in ("fwd", "rev"):  # a safety stop already braked and cancelled; nothing to do
                 return
+            if not self.pot.ok:
+                return self._stop(now, f"{m['label']}: pot reading unreliable (dead zone?)")
             sign = self.pot.cal["sign"] * (1 if self.state == "fwd" else -1)  # forward raises the pot voltage
             remaining = (m["target"] - self.angle) * sign
             if fresh:
                 # cap the speed: crossing the gap makes the angle jump, and a spike here would brake far too early
                 speed = min(abs(self._speed_dps()), 1.5 * FULL_SPEED_DPS * self.duty)
-                if remaining <= speed * LEAD_S:
+                if remaining <= speed * self.lead_s:
+                    m["stop_speed"], m["stop_sign"] = speed, sign  # direction the angle was travelling
                     self.want = "stop"
                     self._stop(now, f"{m['label']}: at target", keep_want=True)
                     m["phase"], m["settle_until"] = "settle", now + BRAKE_S + SETTLE_S
@@ -391,6 +404,13 @@ class JogController:
         if self.state != "asleep" or now < m["settle_until"]:
             return
         err = self.angle - m["target"]
+        stop_speed = m.pop("stop_speed", 0)
+        if stop_speed > 20 and self.pot.ok:  # learn the lead: overshoot (+) means brake earlier next time
+            over = err * m.pop("stop_sign")
+            self.lead_s = min(LEAD_S_RANGE[1], max(LEAD_S_RANGE[0], self.lead_s + 0.5 * over / stop_speed))
+        if not self.pot.ok:
+            self._event(now, f"{m['label']}: stopped in the pot's dead zone, angle unknown")
+            return self._cancel_moves(now, "pot in its dead zone")
         if abs(err) <= TOL_DEG or (m["driven"] and (not m["correct"] or m["tries"] >= MAX_TRIES)):
             self._event(now, f"{m['label']}: at {self.angle:.1f}° (target {m['target']:.1f}°, "
                              f"error {err:+.1f}°{', ' + str(m['tries']) + ' correction(s)' if m['tries'] else ''})")
@@ -456,6 +476,8 @@ class JogController:
                     "tick_age_s": round(now - self.last_tick, 3),
                     "angle": None if self.angle is None else round(self.angle, 2), "pot_v": self.pot_v,
                     "pot_errors": self.pot_errors, "pot_cal": dict(self.pot.cal) if self.pot else None,
+                    "pot_ok": self.pot.ok if self.pot else None, "room": self.pot.room_deg() if self.pot else None,
+                    "lead_s": round(self.lead_s, 3),
                     "zero_mv": {k: round(v * 1000, 3) for k, v in self.sampler.zero_v.items()}}
 
 
