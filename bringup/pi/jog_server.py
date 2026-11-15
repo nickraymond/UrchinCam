@@ -72,6 +72,9 @@ FULL_SPEED_DPS = 300.0  # rough full-speed shaft speed (cam02 11/13: ~325 deg/s)
 # cam02 11/15). The current in between is held from the last read (stall cut-off, energy).
 FAST_CUR_EVERY = 8
 STALL_S = 0.015  # a control-loop step later than this is logged with what took the time (Jog page, /api/loop)
+GIL_SWITCH_S = 0.0005  # hand Python's interpreter lock between threads this often (default 5 ms): after each I2C
+# read the control thread waited up to 5 ms behind the web threads, 9-17 ms per step (cam02 11/15, /api/loop)
+STATUS_MAX_AGE_S = 0.04  # stream clients share one status built at most this often
 # Move methods. "simple": drive at the set speed, brake one learned lead before the target (lead_s).
 # "approach": drive at the set speed until APPROACH_DEG out, then APPROACH_DUTY (raised by APPROACH_BUMP every
 # BUMP_EVERY_S while slower than SPEED_FLOOR_DPS, e.g. on the brush's raised surface), and brake with a lead learned
@@ -769,9 +772,27 @@ def start_run(ctrl, body, extra, root=br.RUNS_ROOT, options_path=br.OPTIONS_PATH
     return run.meta["id"]
 
 
+class StatusCache:
+    """One status JSON for all stream clients, rebuilt at most every STATUS_MAX_AGE_S (it takes the control lock)."""
+
+    def __init__(self, ctrl, extra):
+        self.ctrl, self.extra = ctrl, extra
+        self.lock = threading.Lock()
+        self.at, self.text = 0.0, "{}"
+
+    def json(self):
+        with self.lock:
+            now = time.monotonic()
+            if now - self.at >= STATUS_MAX_AGE_S:
+                self.text = json.dumps({**self.ctrl.status(), **self.extra})
+                self.at = now
+            return self.text
+
+
 def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
     page = os.path.join(HERE, "jog_page.html")
     runs_page = os.path.join(HERE, "runs_page.html")
+    status_cache = StatusCache(ctrl, extra)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):  # quiet: the stream would flood the log
@@ -847,12 +868,13 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
                         rows = ctrl.since(seq)
                         if rows:
                             seq = rows[-1]["seq"]
-                        msg = {"t": [round(r["t_s"], 4) for r in rows],
-                               "a": [round(r["amps"], 5) for r in rows],
-                               "s": [r["state"][0] for r in rows],  # a f r b
-                               "g": [None if r.get("angle") is None else round(r["angle"], 1) for r in rows],
-                               "status": {**ctrl.status(), **extra}}
-                        self.wfile.write(f"data: {json.dumps(msg)}\n\n".encode())
+                        data = json.dumps({"t": [round(r["t_s"], 4) for r in rows],
+                                           "a": [round(r["amps"], 5) for r in rows],
+                                           "s": [r["state"][0] for r in rows],  # a f r b
+                                           "g": [None if r.get("angle") is None else round(r["angle"], 1)
+                                                 for r in rows]})
+                        msg = data[:-1] + ', "status": ' + status_cache.json() + "}"
+                        self.wfile.write(f"data: {msg}\n\n".encode())
                         self.wfile.flush()
                         time.sleep(0.05)
                 except (BrokenPipeError, ConnectionResetError):
@@ -904,6 +926,8 @@ def main(argv=None):
                    help="read the shaft pot (AIN2) every N current samples; 0 = no pot (pot.py)")
     args = p.parse_args(argv)
     import urchin_hw as hw
+
+    sys.setswitchinterval(GIL_SWITCH_S)
 
     run_dir = wl.make_run_dir("jog_" + datetime.datetime.now().strftime("%H%M%S"))
     gpio = hw.open_gpio(prefer_lgpio=True)  # gpiozero device swaps + LED PWM lost the motor PWM (cam02 11/15)

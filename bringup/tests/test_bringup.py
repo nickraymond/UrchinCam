@@ -921,6 +921,22 @@ class TestLoopStats(unittest.TestCase):
         self.assertEqual([x["cause"] for x in ls.stalls], ["gc", "adc", "late_wake"])
         self.assertEqual(s["max_gap_ms"], 40.0)
 
+    def test_status_cache_shared(self):
+        t = TestJog()
+        ctrl = t._ctrl()
+        calls = {"n": 0}
+        real = ctrl.status
+
+        def counted():
+            calls["n"] += 1
+            return real()
+        ctrl.status = counted
+        cache = jog_server.StatusCache(ctrl, {"throttled": "0x0"})
+        a, b = cache.json(), cache.json()  # two clients within STATUS_MAX_AGE_S
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(json.loads(a)["throttled"], "0x0")
+        self.assertEqual(a, b)
+
     def test_recorder_writes_off_thread(self):
         with tempfile.TemporaryDirectory() as d:
             rec = jog_server.Recorder(d)
