@@ -62,6 +62,14 @@ class Sampler:
                 fresh = 1
             raw, _ = self.adc.single_shot(0, self.fsr)
             self.k += 1
+        return self._row(raw, fresh)
+
+    def take_single(self):
+        """One AIN0 conversion while the ADC streams another channel (jog bench moves); leaves it powered down."""
+        raw, _ = self.adc.single_shot(0, self.fsr)
+        return self._row(raw, 0)
+
+    def _row(self, raw, fresh):
         visen = raw_to_volts(raw, self.fsr)
         zero = self.zero_v[self.zero_key]
         return {

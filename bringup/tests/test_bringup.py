@@ -84,28 +84,47 @@ class SimMotorADC:
             return v
         return 0.57 if v < self.POT_TRACK_V + 0.2 else 0.0
 
+    cont_ch = 0
+
     def start_continuous(self, channel, fsr=None):
-        pass
+        self.cont_ch = channel  # 0 = current (VISEN), 2 = pot, like the real ADC's mux
+
+    # Shaft inertia: speed follows the drive with these time constants (driving, coasting, braking).
+    TAU_DRIVE, TAU_COAST, TAU_BRAKE = 0.03, 0.06, 0.012
+    shaft_vps = 0.0
 
     def _turn_pot(self):
+        import math
         now = self.clock()  # FakeClock in tests; real time in the desk sim
         if self.pot_last_t is not None:
+            dt = now - self.pot_last_t
             g = self.gpio.levels
             a, b = g.get(hw.GPIO_IN1, 0), g.get(hw.GPIO_IN2, 0)
-            d = (a - b) if g.get(hw.GPIO_NSLEEP_HB) else 0  # +1 forward, -1 reverse, PWM duty in between
-            self.pot_u += d * self.pot_vps * (now - self.pot_last_t)
+            awake = g.get(hw.GPIO_NSLEEP_HB)
+            d = (a - b) if awake else 0  # +1 forward, -1 reverse, PWM duty in between
+            tau = self.TAU_BRAKE if awake and a and b == a and a >= 1 else self.TAU_DRIVE if d else self.TAU_COAST
+            self.shaft_vps += (d * self.pot_vps - self.shaft_vps) * (1 - math.exp(-dt / tau))
+            self.pot_u += self.shaft_vps * dt
         self.pot_last_t = now
 
     def single_shot(self, channel, fsr):
         self.clock.t += 0.0015  # one conversion at 860 SPS
         self._turn_pot()
+        if channel == 0:
+            raw = self._visen_raw()
+            return raw, hw.raw_to_volts(raw, self.fsr)
         if channel != 2:
-            raise ValueError("sim has only the pot on AIN2")
+            raise ValueError("sim has VISEN on AIN0 and the pot on AIN2")
         return int(self.pot_v / fsr * 32768), self.pot_v
 
     def read_raw(self):
         self.clock.t += 0.0003  # an I2C read takes time
         self._turn_pot()
+        if self.cont_ch == 2:
+            return int(self.pot_v / 4.096 * 32768)
+        return self._visen_raw()
+
+    def _visen_raw(self):
         g = self.gpio.levels
         if not g.get(hw.GPIO_NSLEEP_HB):
             amps = 0.0
@@ -483,7 +502,6 @@ class TestJog(unittest.TestCase):
         adc = SimMotorADC(gpio, clock, fsr=1.024, stall_a=0.80)
         sampler = wipe_logger.Sampler(adc, 1.024, 2000.0)
         sampler.zero_v["sleep"] = 0.0
-        sampler.begin = lambda: None  # the real one sleeps 2 conversions; the sim needs no restart
         shown = []
         p = pot.PotAngle(dict(pot.DEFAULT_CAL)) if pot_every else None
         ctrl = jog_server.JogController(motor, sampler, clock=clock, show=shown.append, pot=p, pot_every=pot_every)
@@ -775,6 +793,31 @@ class TestJog(unittest.TestCase):
         fast.request_move("step", 60, duty=1.0)
         self._run_for(fast, 3.0)
         self.assertNotEqual(fast.lead_s, jog_server.LEAD_S)
+
+    def test_moves_stream_the_pot(self):
+        ctrl = self._mover()
+        n0 = ctrl.seq
+        ctrl.request_move("step", 90, duty=1.0)
+        self._run_for(ctrl, 0.3)  # mid-move
+        self.assertTrue(ctrl.fast)
+        rows = [r for r in ctrl.buf if r["seq"] > n0 and r["state"] == "fwd"]
+        self.assertTrue(all(r["pot_v"] is not None for r in rows))  # an angle every sample
+        self.assertAlmostEqual(rows[-1]["amps"], 0.060, delta=0.003)  # current still measured (held between reads)
+        self._run_for(ctrl, 3.0)
+        self.assertFalse(ctrl.fast)  # back to streaming the current
+        self.assertEqual(self.adc.cont_ch, 0)
+        ctrl.request("fwd")
+        self._run_for(ctrl, 0.3)
+        self.assertAlmostEqual(ctrl.buf[-1]["amps"], 0.060, delta=0.003)
+
+    def test_stall_cut_off_during_a_move(self):
+        ctrl = self._mover()
+        ctrl.set_settings({"stall_amps": 0.5, "stall_ms": 200})
+        self.adc.jam, self.adc.wipe_phase = {"held"}, "held"  # 0.8 A while driving
+        ctrl.request_move("step", 90, duty=1.0)
+        self._run_for(ctrl, 1.5)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertTrue(any("stall cut-off" in e["text"] for e in ctrl.events))
 
     def test_no_drive_current_guard(self):
         ctrl = self._mover()

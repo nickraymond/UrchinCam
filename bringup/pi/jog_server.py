@@ -34,6 +34,7 @@ import bench_runs as br
 import pot as potmod
 import wipe_analysis as wa
 import wipe_logger as wl
+from urchin_hw import raw_to_volts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRAKE_S = 0.1  # brake before a stop or a direction change, as the logger does
@@ -64,6 +65,10 @@ GAP_DEG = 35.0  # ...plus the time to cross the pot's ~30 deg gap, where the rea
 WRONG_WAY_DEG = 5.0  # moving away from the target by this much -> stop: forward must raise the pot voltage
 # (true on cam02 11/13); if the J3 leads are swapped it lowers it, and every move runs away.
 FULL_SPEED_DPS = 300.0  # rough full-speed shaft speed (cam02 11/13: ~325 deg/s); only sets move timeouts
+# During moves the ADC streams the pot (AIN2) and reads the current only every FAST_CUR_EVERY samples: at ~300 deg/s
+# that's ~0.4 deg of travel between angle readings instead of ~3 deg (pot read every 2nd sample, ~10 ms apart,
+# cam02 11/15). The current in between is held from the last read (stall cut-off, energy).
+FAST_CUR_EVERY = 8
 # Move methods. "simple": drive at the set speed, brake one learned lead before the target (lead_s).
 # "approach": drive at the set speed until APPROACH_DEG out, then APPROACH_DUTY (raised by APPROACH_BUMP every
 # BUMP_EVERY_S while slower than SPEED_FLOOR_DPS, e.g. on the brush's raised surface), and brake with a lead learned
@@ -136,6 +141,9 @@ class JogController:
         self.prev_t = None
         self.nocur_since = None
         self.pwm_reset_done = False
+        self.fast = False  # ADC streaming the pot (moves) instead of the current
+        self.fast_k = 0
+        self.last_cur = None
 
     # --- HTTP side ---
     def request_move(self, kind, value, duty=1.0, cycles=1, pause_s=0.3, method="simple"):
@@ -311,7 +319,7 @@ class JogController:
                 self.sampler.zero_key = "sleep"
             self.last_tick = now
             try:
-                s = self.sampler.take()  # brake keeps the zero of the stroke before it
+                s, fast_pot_v = self._sample()  # brake keeps the zero of the stroke before it
             except OSError as e:  # cam02 sees rare I2C errors (11/12, 11/13); skip the sample, don't die
                 self.i2c_errors += 1
                 self.err_run += 1
@@ -321,7 +329,7 @@ class JogController:
                     self._stop(now, f"current sensor not answering ({SENSOR_FAIL_N} reads)")
                 if self.err_run % SENSOR_FAIL_N == 0:
                     try:
-                        self.sampler.begin()  # restart continuous mode in case the ADC lost its setup
+                        self._restart_adc()  # in case the ADC lost its setup
                     except OSError:
                         pass
                 return None
@@ -333,7 +341,7 @@ class JogController:
                 # The bridge can't conduct asleep, and VISEN then floats: cam02 read ~37-40 mV that drifts for
                 # minutes after boot (11/13). Report 0 A; visen_v and raw keep the real reading.
                 s["amps"] = 0.0
-            if s["clipped"]:
+            if s["clipped"] and s.get("fresh_cur", True):
                 self.clipped += 1
             if self.state in ("fwd", "rev"):
                 self.peak = max(self.peak, s["amps"])
@@ -346,7 +354,7 @@ class JogController:
                 self.move["energy_j"] += max(s["amps"], 0.0) * br.VBUS_NOMINAL * (now - self.prev_t)  # 5 V assumed, no divider
                 self.move["peak_a"] = max(self.move["peak_a"], s["amps"])
             self.prev_t = now
-            pot_v = self._read_pot()
+            pot_v = self._read_pot(fast_pot_v)
             if pot_v is not None:
                 self.pot_hist.append((now, self.angle))
             self._move_step(now, pot_v is not None)
@@ -362,9 +370,45 @@ class JogController:
                     self.run = None
             return row
 
-    def _read_pot(self):
+    def _restart_adc(self):
+        if self.fast:
+            self.sampler.adc.start_continuous(potmod.POT_CHANNEL, potmod.POT_FSR)
+        else:
+            self.sampler.begin()
+
+    def _sample(self):
+        """(current row, pot volts or None). Moves stream the pot; otherwise the current, as before."""
+        want_fast = bool(self.pot and (self.move or self.moves))
+        if want_fast and not self.fast:
+            self.last_cur = self.sampler.take()  # last current before the switch
+            self.fast, self.fast_k = True, 0
+            self._restart_adc()
+        elif not want_fast and self.fast:
+            self.fast = False
+            self._restart_adc()
+        if not self.fast:
+            return self.sampler.take(), None
+        raw = self.sampler.adc.read_raw()
+        v = raw_to_volts(raw, potmod.POT_FSR)
+        self.fast_k += 1
+        if self.fast_k % FAST_CUR_EVERY == 0:
+            try:
+                self.last_cur = self.sampler.take_single()
+            finally:
+                self._restart_adc()
+            return dict(self.last_cur, fresh_cur=True), v
+        return dict(self.last_cur, fresh_cur=False), v
+
+    def _read_pot(self, fast_v=None):
         """Every pot_every ticks: AIN2 single-shot (the ADC leaves continuous mode), then AIN0 continuous again.
-        Costs about one conversion plus the restart, so the current rate drops a little (see the status)."""
+        Costs about one conversion plus the restart, so the current rate drops a little (see the status).
+        While a move streams the pot (fast_v), every tick has a reading and nothing is switched."""
+        if fast_v is not None:
+            self.pot_v = fast_v
+            self.angle = self.pot.update(fast_v, self.clock())
+            return fast_v
+        if self.fast:
+            return None
         self.ticks += 1
         every = MOVE_POT_EVERY if (self.move or self.moves) else self.pot_every
         if not self.pot or not every or self.ticks % every:
@@ -377,7 +421,7 @@ class JogController:
         except (OSError, TimeoutError):
             self.pot_errors += 1
         try:
-            self.sampler.begin()
+            self._restart_adc()
         except OSError:
             self.pot_errors += 1
         return v
