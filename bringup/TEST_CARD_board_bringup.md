@@ -1,17 +1,21 @@
 # Test card: UrchinCam expander board bring-up + wiper power bench
 
-Pre-registered before any power-on. Status: **not yet approved as a card** (approval names this file `@ <sha>`;
+Pre-registered before any power-on. Status: **the card as a whole is not approved**; only stage 5 is (quoted below,
+run 11/15); stage 8 was closed on existing data and stage 10 is proposed (approval names this file `@ <sha>`;
 board card `nick_wiper_bringup_ok`). Stages 2-4, 6 and 7 **ran anyway**, on Nick's go in the builder chat, not on
-an approved card (QE 019, 11/15, B2); stage 5 has not run. His words, read in that chat:
+an approved card (QE 019, 11/15, B2). Stage 5 (5.1-5.6) ran 11/15 3:21 PM on his stage 5 approval and his QE
+override (~3:02 PM: "I am over ridinging QE - work with me - run some test"), before QE's stage 5 spec PASS @ 29d446c.
+His words, read in that chat:
 - 11/12: "lets jump to pi bring up first, i have "cam002" plugged in ... can you ssh it", then "I went rouge and just
   plugged the board ontop of the pi, it is rebooting. Please try to communicate with the ADC and the motor driver
   ... see how far you can get without me". Stages 0-1 (bench supply, board off the Pi) were skipped; 1.5 was
   measured on the Pi's power instead.
 - 11/13: "ok i have the two motors, tell me when to plug one in for a test"; "you are allowed to access the pi, stop
   asking me".
-- 11/15: the jog bench comparisons in [WIPER_BENCH.md](WIPER_BENCH.md) ran outside this card (they are not stage 8).
+- 11/15: the jog bench comparisons in [WIPER_BENCH.md](WIPER_BENCH.md) ran outside this card; Nick later had stage 8 closed on
+  their 1334 run (see stage 8).
 - 11/15, about 2:32 PM: "Yes stage 5 approved" (asked whether his "Approved" covered this card @ 89fdd53 with
-  stage 10; his answer names stage 5 only). Stage 5's text has not changed since.
+  stage 10; his answer names stage 5 only). Stage 5's text has not changed since, except its Result cells.
 Per QE 019 this card is the PREREG file (tier a): the bars below must stand, QE spec PASS and Nick's OK on the sha
 the board card names, before the next hardware run. Results marked "(not saved)" were read live in the session or on
 Nick's meter; no file holds them.
@@ -38,7 +42,7 @@ Record sheet: copy the "Result" lines into `~/NereusData/UrchinCam/<YYYY-MM-DD>_
 
 Pi model: Raspberry Pi Zero 2 W Rev 1.0 (cam02)  OS: Debian 12 bookworm, kernel 6.12.47+rpt-rpi-v8
 Motor (Pololu #): not recorded; 260:1 and 1000:1 micro metal gearmotors, treated as 6 V versions (Nick, 11/13)
-Bench supply: none; everything on the Pi's USB 5 V (stages 0-1 skipped).
+Bench supply: none; everything on the Pi's USB 5 V (stages 0-1 skipped; 1.5 measured on the Pi's power instead).
 
 ## Power rule (read first)
 
@@ -151,20 +155,27 @@ Motor leads to J3.1/2 and J3.3/4. DMM on its mA range in series with one lead.
 
 ## Stage 8: real seal and brush (energy per wipe)
 
-**To be rewritten before it runs** (QE 019): as written it uses `wipe_logger.py` with the 0.25 A / 150 ms cut-off,
-below the brush's ~390 mA running current on cam02 (11/15), so it would stop every stroke. The rewrite sets the
-cut-off from measured current and runs on the jog bench.
+**Closed on the jog bench data, after the fact** (not run as written here). Nick, builder chat 11/15: "Stage 8 - we
+are doing that already, all wiper hardware tests have been with the actual Zebra brush + motor assembly stack
+(bearings, seals, coulers) over a plastic surface that is rougher than my machined housing and glass will be. Can we
+call this done now since we already have teh data?" The plan below (`wipe_logger.py`, 0.25 A / 150 ms cut-off) was
+never run: that cut-off is under the brush's running current and would stop every stroke (QE 019).
 
-Motor coupled to the Zebra-Tech assembly with the real seal. Nick sets the stroke times so the brush covers the port
-without hitting an end stop (or the run stops on stall and that is recorded).
-`python3 pi/wipe_logger.py --run seal --fwd-s <t> --rev-s <t> --wipes 10 --motor <part#> --noload-amps <7.4>`
+Data: the 11/15 `1334` run, `~/NereusData/UrchinCam/2026-11-15_1334_compare/` (`moves.json` simple, `samples_simple.csv`),
+code 6254b8f: 30 wipes 0 -> +90 -> 0 deg, simple method, 100 %, 0.3 s rest, 1000:1 motor at 5 V, the Zebra-Tech
+brush and seal stack on the plastic surface, hand-held rig, jog bench cut-off 0.5 A / 250 ms. One run (n = 1); the
+other 30-wipe runs are in [WIPER_BENCH.md](WIPER_BENCH.md). During moves the current is read every 8th sample, so a
+peak shorter than ~20 ms may be missed.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 8.1 | 10 wipes, energy per wipe (J) | all 10 complete; report median and min–max | not run (this stage's `wipe_logger.py` 10-wipe run; the jog bench runs are listed in WIPER_BENCH.md instead) |
-| 8.2 | Peak and mean current per stroke | peak < the stall cut-off (no false stalls) | not run |
-| 8.3 | Torque margin estimate = (I_stall − I_noload) / (I_peak − I_noload) | report; E2 asked for ≥ 2× (card `p_e2_drive`: "A gives ~2.2×") | not run |
-| 8b | Optional, only if Nick fits the 10 k + 10 k divider on TP5 (see VISEN_SCALE.md): rerun 8.1 with `--vbus-divider 2.0` | record the minimum +5V during a stroke; ≥ 4.75 V | |
+| 8.1 | Energy per wipe (J) | all wipes complete; report median and min–max | DONE (after the fact): 30 / 30 wipes, 60 / 60 strokes, 0 corrections; **1.435 J** median, 1.358–1.532 J (motor only, 5 V assumed) |
+| 8.2 | Peak and mean current per stroke | no false stalls | DONE (after the fact): 0 cut-off stops in 60 strokes. Peak per stroke median 868 mA (571–1254); above 0.5 A for at most 0.039 s against the 0.25 s window. Mean while driving median 0.407 A (0.375–0.456) |
+| 8.3 | Torque margin estimate = (I_stall − I_noload) / (I_peak − I_noload) | report; E2 asked for ≥ 2× (card `p_e2_drive`: "A gives ~2.2×") | waits on stage 9 (stall current) |
+| 8b | Optional: minimum +5V during a stroke, with the 10 k + 10 k divider on TP5 (see VISEN_SCALE.md) | ≥ 4.75 V | not run (no divider fitted) |
+
+The final housing (machined) and glass are smoother than this surface (Nick, above), so these currents and energies
+are expected to be on the high side; not measured.
 
 ## Stage 9: stall (short)
 
@@ -184,43 +195,57 @@ Nick holds the brush still by hand (or a fixed stop) and runs one stroke.
 Defaults: `--stall-amps 0.25`, `--stall-ms 150`. They fit a Pololu #4791 at 5 V (stall ≈ 0.30 A if stall current
 scales with voltage from Pololu's 0.36 A at 6 V; an estimate). Nick changes them for another motor.
 
-## Stage 10 (PROPOSED, needs Nick's OK): repeat for the candidate production method
+## Stage 10 (PROPOSED, needs QE spec PASS, then Nick's OK): repeat for the candidate method
 
-Pre-registered here before any run (QE 019, B1 and spec review). Drafted by the builder; the bar numbers are the
+Pre-registered here before any run (QE 019, B1 and spec reviews). Drafted by the builder; the bar numbers are the
 builder's proposal from the 11/15 runs, **not a stated product need**: Nick confirms or sets them. Against this bar
 the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
 
 - **Question:** does the simple method (pot streamed during moves, learned brake leads saved across restarts) land
   0 -> +90 -> 0 deg wipes within the bar, run after run, from a fresh restart, on the rigid mount?
 - **What a pass allows:** "on this rig, motor and board, the simple method met the bar". It is not a recommendation
-  for other units, motors or boards (n = 1 rig).
-- **Conditions:** the **rigid printed mount** (not hand-held); the 1000:1 motor (Nick records its Pololu part number
-  in each run); real brush on the raised surface; cam02 with the services in `services_disabled_2026-11-15.txt`
-  stopped; current cut-off **0.5 A / 250 ms** (the default; nobody changes it during the stage). Code: the PR head
-  deployed at the time, recorded per run from the bench's own `sha` (`meta.json`).
-- **Before stage 10:** a rewritten stage 9 (stall at the brush load; see below) has run and its cut-off tripped,
-  so the cut-off is known to work on this motor.
-- **Start state of the learned leads:** delete `~/NereusData/UrchinCam/motion_cal.json` on the Pi once before run 1
-  (fresh, untrained). Runs 1-3 and the restart checks then use what the earlier runs taught, as production would.
-  Between a restart and stroke 1 only one move is allowed: `go to 0` at 100 % from wherever the arm stopped, and it
-  is logged (it is a stroke the lead learns from, like any other).
-- **Independent check:** the pot both steers and scores the moves, so after each run the arm must stop back on a
-  marked zero on the mount (a line on the arm against a line on the housing). Nick reads it by eye with a printed
-  protractor scale: **within +-3 deg**.
-- **Tool:** `bringup/tools/wipe_repeat.py --host <pi>:8765 --motor "<part #>" --wipes <n> --sweep 90 --out <dir>`,
-  which writes meta.json (sha, motor, settings, leads), moves.json, samples.csv, loop.json and summary.json per run.
-  Restart `jog-bench` before each run (`sudo systemctl restart jog-bench`).
-- **n:** 3 runs x 30 wipes for 10.1, plus **10 restarts x 3 wipes** for 10.2: the 11/15 first-stroke miss hit 4 of 5
-  restarts, so three first strokes can't show it is gone; ten can show a miss rate under about 1 in 10.
-- **Cost:** about 45 min of Nick's bench time (mount, 3 runs of ~1 min, 10 restarts, the zero check), no purchases.
+  for other units, motors or boards (n = 1 rig), and not a production qualification.
+- **Run conditions (every run):** sweep **+90 deg** from the start angle and back; speed **100 %**; **0.3 s** rest at
+  each end; method simple; the rigid printed mount (not hand-held); the 1000:1 motor (Nick records its Pololu part
+  number in each run); real brush on the raised surface; cam02 with the services in `services_disabled_2026-11-15.txt`
+  stopped; current cut-off **0.5 A / 250 ms** (the default; nobody changes it during the stage).
+- **Error of a stroke:** the pot angle 0.25 s after the brake (0.1 s brake + 0.15 s settle) minus the target, in pot
+  degrees at the hand-calibrated scale **98.3 deg/V** (about +-10 %, `pot.DEFAULT_CAL`, cam02 11/13).
+- **One sha:** the stage runs on the sha QE gives spec PASS (this card's head). `wipe_repeat.py --expect-sha` refuses
+  any other; a run whose `meta.json` sha is another or "unknown" doesn't count.
+- **Before stage 10:** a rewritten stage 9 (stall at the brush load) has run and its cut-off tripped, so the cut-off
+  is known to work on this motor.
+- **Order at the start:** (1) delete `~/NereusData/UrchinCam/motion_cal.json` on the Pi, (2) `sudo systemctl restart
+  jog-bench`, (3) one **training run of 5 wipes** with the tool (`--out .._stage10_train`): recorded, not scored,
+  and its `meta.json` must show no learned leads (`leads` empty). It stands in for commissioning: a unit would carry
+  its learned leads from then on. Runs 1-3 and the restart sets then use what the earlier runs taught. This is decided
+  before the data: run 1's first stroke counts against 10.1 like any other.
+- **Start move:** after each restart the tool sends the arm to **0 deg** (`go to 0` at 100 %; the bench may then
+  correct up to 3 times at <= 75 %), records that move in `meta.json` (`start_move`, `start_angle`), and refuses to
+  start unless the arm stopped within **3 deg** of 0. No other move is allowed between a restart and stroke 1. The
+  wipes are relative to where the arm stopped.
+- **Independent check (10.4):** before the training run, with the arm at 0 deg after its start move, Nick draws the
+  mark on the mount (a line on the arm against a line on the housing). After each of runs 1-3 and after the last
+  restart set, the arm is sent to 0 the same way and Nick reads the arm against the mark by eye with a printed
+  protractor scale; the tool asks for the reading at the end of the run (or `--zero-check-deg`) and writes it to
+  `summary.json` `zero_check_deg`.
+- **Tool:** `bringup/tools/wipe_repeat.py --host <pi>:8765 --motor "<part #>" --expect-sha <sha> --wipes <n> --out
+  <dir>`; its defaults are the run conditions above. It writes meta.json, moves.json, events.json (every bench event
+  in the run), samples.csv, loop.json and summary.json. Restart `jog-bench` before each run.
+- **n:** 3 runs x 30 wipes for 10.1, plus **10 restarts x 3 wipes** for 10.2 (stroke 1 of each scored). Ten clean
+  first strokes show the miss rate is under about 26 % (95 %: 0.74^10 = 0.05); showing under 1 in 10 would take 29
+  clean restarts (0.9^29 = 0.05). Ten is chosen because 4 of 5 restarts missed on 11/15: ten clean is a clear change
+  from that, not proof of a low rate.
+- **Cost:** about 50 min of Nick's bench time (mount, training run, 3 runs of ~1 min, 10 restarts, 4 zero readings),
+  no purchases.
 - **Stop rule:** stop at the first failed run or restart set and record it; no retries to get a pass.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 10.1 | 3 runs x 30 wipes (60 strokes each), each after a restart | each run: at least 58 of 60 strokes within 3 deg (pot degrees); no stroke over 5 deg | |
-| 10.2 | 10 restarts x 3 wipes: first stroke after each restart | within 3 deg in all 10 | |
-| 10.3 | Safety, every run | no stop of any kind (cut-off, no motion, heartbeat, pot, track end); `throttled=0x0` before and after | |
-| 10.4 | Independent zero check after each run | arm on the marked zero within +-3 deg by eye | |
+| 10.1 | 3 runs x 30 wipes (60 strokes each), each after a restart | each run: at least 58 of 60 strokes within 3 deg (`summary.json` `within_bar`); no stroke over 5 deg (`over_worst` 0) | |
+| 10.2 | 10 restarts x 3 wipes: first stroke after each restart | `first_stroke_deg` within 3 deg in all 10 | |
+| 10.3 | Safety, every run | `summary.json`: `complete` true (`strokes` = `strokes_expected`), `stops` empty (no cut-off, no motion, heartbeat, pot, track end or cancelled move in `events.json`), `cutoff_ok` true (0.5 A / 250 ms before and after); `throttled_before` and `throttled_after` 0x0 | |
+| 10.4 | Independent zero check after runs 1-3 and the last restart set | `zero_check_deg` within +-3 deg | |
 | 10.5 | Energy per wipe | record median and min-max per run (no bar) | |
 | 10.6 | Control-loop pauses, `loop.json` per run | record (no bar) | |
 

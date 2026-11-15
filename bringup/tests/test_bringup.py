@@ -7,6 +7,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -1253,8 +1255,158 @@ class TestWipeRepeat(unittest.TestCase):
     def test_refuses_to_overwrite_a_run(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(SystemExit) as cm:
-                wipe_repeat.main(["--host", "127.0.0.1:1", "--motor", "m", "--out", d])
+                wipe_repeat.main(["--host", "127.0.0.1:1", "--motor", "m", "--expect-sha", "x", "--out", d])
             self.assertIn("exists", str(cm.exception.code))
+
+
+class FakeBench:
+    """Stands in for wipe_repeat.Bench: a jog bench that finishes each queued move after a few heartbeats."""
+
+    def __init__(self, sha="ad04f80", state="asleep", stop_angle=0.4, settings=None, n0=600, events_per_stroke=2):
+        self.status = {"state": state, "move": None, "sha": sha, "angle": 12.0, "pot_v": 1.2, "throttled": "0x0",
+                       "settings": settings or {"stall_amps": 0.5, "stall_ms": 250.0, "max_on_s": 10.0},
+                       "events": []}
+        self.moves = [{"n": i, "error_deg": 0.0, "energy_j": 0.7} for i in range(n0 - 499, n0 + 1)]  # 500 kept
+        self.stop_angle, self.events_per_stroke = stop_angle, events_per_stroke
+        self.posts, self.queue, self.events, self.rows, self._seen = [], [], [], [], set()
+        self.stop = threading.Event()
+        self.t = 0.0
+
+    def get(self, path):
+        return {"/api/moves": lambda: list(self.moves)[-500:], "/api/loop": lambda: {"pauses": 0}}[path]()
+
+    def _event(self, text):
+        self.t += 0.01
+        e = {"t": round(self.t, 3), "text": text}
+        self.status["events"] = (self.status["events"] + [e])[-20:]  # the server keeps 20
+        wipe_repeat.Bench.take(self, {"status": self.status, "t": [], "a": [], "s": [], "g": []})
+
+    def post(self, path, body=None):
+        self.posts.append((path, body))
+        if path == "/move":
+            if body["kind"] == "goto":
+                self.queue = [("go to", self.stop_angle)]
+            else:
+                self.queue = [(f"wipe {i // 2 + 1} {'out' if i % 2 == 0 else 'back'}", None)
+                              for i in range(2 * body["cycles"])]
+            self.status["move"] = {"label": self.queue[0][0]}
+        elif path == "/hb" and self.queue:
+            label, angle = self.queue.pop(0)
+            for _ in range(self.events_per_stroke - 1):
+                self._event(f"fwd stopped: {label}: at target (peak 800 mA)")
+            self._event(f"{label}: at 90.0° (target 90.0°, error +0.0°)")
+            n = self.moves[-1]["n"] + 1
+            self.moves.append({"n": n, "label": label, "error_deg": 0.5, "energy_j": 0.7})
+            if angle is not None:
+                self.status["angle"] = angle
+            if not self.queue:
+                self.status["move"] = None
+        elif path == "/cmd" and body.get("action") == "stop":
+            self.queue = []
+            self.status["move"] = None
+        return {}
+
+    take = wipe_repeat.Bench.take
+
+
+class TestWipeRepeatRun(unittest.TestCase):
+    """QE 019 (11/15) on tools/wipe_repeat.py: idle check, heartbeat, Ctrl-C, wipes cap, 500-move log, full events."""
+
+    def go(self, bench, *extra, **kw):
+        d = tempfile.mkdtemp()
+        a = wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "ad04f80", "--wipes", "15",
+                                    "--out", d, *extra])
+        s = wipe_repeat.run(a, bench, d, sleep=lambda s: None, clock=kw.get("clock", time.monotonic),
+                            isatty=lambda: False)
+        return s, d
+
+    def test_a_full_run(self):
+        b = FakeBench()
+        s, d = self.go(b, "--zero-check-deg", "1.5")
+        self.assertTrue(s["complete"])
+        self.assertEqual((s["strokes"], s["strokes_expected"]), (30, 30))  # moves found by n past the 500-move log
+        self.assertEqual(s["stops"], [])
+        self.assertTrue(s["cutoff_ok"])
+        self.assertEqual(s["zero_check_deg"], 1.5)
+        with open(os.path.join(d, "events.json")) as f:
+            self.assertEqual(len(json.load(f)), 2 * 31)  # every event, not the server's last 20
+        with open(os.path.join(d, "meta.json")) as f:
+            meta = json.load(f)
+        self.assertEqual((meta["sha"], meta["start_angle"], len(meta["start_move"])), ("ad04f80", 0.4, 1))
+        self.assertGreaterEqual(sum(1 for p, _ in b.posts if p == "/hb"), 31)  # one heartbeat per stroke at least
+
+    def test_refuses_a_busy_bench(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.go(FakeBench(state="fwd"))
+        self.assertIn("isn't idle", str(cm.exception.code))
+
+    def test_refuses_another_sha(self):
+        for sha in ("29d446c", "unknown"):
+            with self.subTest(sha=sha):
+                with self.assertRaises(SystemExit) as cm:
+                    self.go(FakeBench(sha=sha))
+                self.assertIn("doesn't count", str(cm.exception.code))
+
+    def test_refuses_a_start_off_zero(self):
+        b = FakeBench(stop_angle=4.0)
+        with self.assertRaises(SystemExit) as cm:
+            self.go(b)
+        self.assertIn("not within 3.0 deg", str(cm.exception.code))
+        self.assertFalse(any(body and body.get("kind") == "wipe" for _, body in b.posts))
+
+    def test_no_heartbeat_no_progress(self):
+        b = FakeBench()
+        b.post = lambda path, body=None, post=b.post: {} if path == "/hb" else post(path, body)
+        t = [0.0]
+
+        def clock():
+            t[0] += 1.0
+            return t[0]
+        with self.assertRaises(SystemExit) as cm:
+            self.go(b, clock=clock)
+        self.assertIn("didn't finish", str(cm.exception.code))
+        self.assertIn(("/cmd", {"action": "stop"}), b.posts)
+
+    def test_ctrl_c_stops_the_motor(self):
+        b = FakeBench()
+        hb = [0]
+
+        def post(path, body=None, post=b.post):
+            if path == "/hb" and any(x and x.get("kind") == "wipe" for _, x in b.posts):
+                hb[0] += 1
+                if hb[0] == 5:
+                    raise KeyboardInterrupt
+            return post(path, body)
+        b.post = post
+        s, _ = self.go(b)
+        self.assertTrue(s["aborted"])
+        self.assertFalse(s["complete"])
+        self.assertIn(("/cmd", {"action": "stop"}), b.posts)
+
+    def test_a_safety_stop_is_reported(self):
+        b = FakeBench()
+        post = b.post
+
+        def stalled(path, body=None):
+            r = post(path, body)
+            if path == "/hb" and len(b.moves) == 500 + 1 + 7:  # 500 old, the start move, 7 strokes
+                b._event("rev stopped: wipe 4 back: no motion for 0.7 s (stalled or too slow) (peak 480 mA)")
+                b._event("moves stopped (no motion); 23 not finished")
+                b.queue, b.status["move"] = [], None
+            return r
+        b.post = stalled
+        s, _ = self.go(b)
+        self.assertFalse(s["complete"])
+        self.assertEqual(len(s["stops"]), 2)
+
+    def test_a_changed_cutoff_does_not_count(self):
+        s, _ = self.go(FakeBench(settings={"stall_amps": 0.8, "stall_ms": 250.0}))
+        self.assertFalse(s["cutoff_ok"])
+
+    def test_wipes_over_the_bench_cap_are_refused(self):
+        with self.assertRaises(SystemExit):
+            wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "x", "--wipes", "101",
+                                    "--out", "o"])
 
 
 class TestScriptBounds(unittest.TestCase):

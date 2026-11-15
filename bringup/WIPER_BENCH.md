@@ -15,7 +15,7 @@ matter most in production. Simple = drive at the set speed toward the target and
 
 The data does **not** yet show it meets a production bar: the bar below was not written before the runs, each code
 configuration has one 30-wipe run (n = 1) on a hand-held rig, and 4 of the 5 streamed-pot runs miss their first
-wipe by 4-7 deg. A pre-registered repeat is proposed in the test card (stage 10) for Nick's OK.
+wipe by 4-7 deg. A pre-registered repeat is proposed in the test card (stage 10): QE spec PASS, then Nick's OK.
 
 ### Every comparison run on 11/15
 

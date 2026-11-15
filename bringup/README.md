@@ -14,7 +14,7 @@ The UrchinCam expander board (`UrchinCam_Expander_PCBA_01`) used as the wiper po
 | [pi/jog_server.py](pi/jog_server.py) | Jog bench on the Pi: Drive (`/`), Runs (`/runs`) and Jog (`/jog`, angle steps, speed, wipe by angle) pages |
 | [pi/pot.py](pi/pot.py) | Shaft angle from the pot on AIN2: scale, turn counting, dead-zone handling |
 | [pi/bench_runs.py](pi/bench_runs.py), [pi/bench_options.json](pi/bench_options.json) | Tagged multi-cycle runs: one folder per run, include/exclude, statistics across runs; motor and condition lists |
-| [tools/wipe_repeat.py](tools/wipe_repeat.py) | Runs one stage 10 run through the bench API and saves meta (sha, motor, settings), moves, samples, loop stats, summary |
+| [tools/wipe_repeat.py](tools/wipe_repeat.py) | Runs one stage 10 run through the bench API (checks the sha, sends the arm to its start, stops on Ctrl-C) and saves meta, moves, every event, samples, loop stats, summary |
 | [pi/jog-bench.service](pi/jog-bench.service) | systemd unit: starts the jog bench at boot on 127.0.0.1 and the Pi's Tailscale IP, port 8765 |
 | [pi/wipe_analysis.py](pi/wipe_analysis.py), [pi/urchin_hw.py](pi/urchin_hw.py) | Math and hardware layers |
 
