@@ -141,17 +141,38 @@ class ADS1115:
         self._write_config(ads_config_word(0, self.fsr, self.rate, single_shot=True) & 0x7FFF)
 
 
+PWM_HZ = 2000  # software PWM via lgpio on cam02 (11/15): 1 kHz ~5 % CPU, 5 kHz ~24 %, 10 kHz ~45 %, 20 kHz refused
+
+
 class GpiozeroBackend:
+    """Plain on/off outputs; a pin switches to software PWM only while it runs below 100 % (pwm())."""
+
     def __init__(self):
-        from gpiozero import DigitalOutputDevice
-        self._cls = DigitalOutputDevice
+        from gpiozero import DigitalOutputDevice, PWMOutputDevice
+        self._cls, self._pwm_cls = DigitalOutputDevice, PWMOutputDevice
         self.devs = {}
 
     def output(self, pin, level):
-        if pin not in self.devs:
+        dev = self.devs.get(pin)
+        if dev is not None and isinstance(dev, self._pwm_cls):
+            dev.close()
+            dev = None
+        if dev is None:
             self.devs[pin] = self._cls(pin, initial_value=bool(level))
         else:
-            self.devs[pin].value = bool(level)
+            dev.value = bool(level)
+
+    def pwm(self, pin, duty, freq=PWM_HZ):
+        if duty >= 1.0 or duty <= 0.0:
+            return self.output(pin, duty >= 1.0)
+        dev = self.devs.get(pin)
+        if dev is not None and not isinstance(dev, self._pwm_cls):
+            dev.close()
+            dev = None
+        if dev is None:
+            self.devs[pin] = self._pwm_cls(pin, frequency=freq, initial_value=duty)
+        else:
+            dev.value = duty
 
     def close(self):
         for dev in self.devs.values():
@@ -162,6 +183,9 @@ class GpiozeroBackend:
 class PinctrlBackend:
     def __init__(self):
         self.pins = set()
+
+    def pwm(self, pin, duty, freq=PWM_HZ):
+        self.output(pin, duty >= 0.5)  # no PWM through pinctrl: nearest of full on / off
 
     def output(self, pin, level):
         subprocess.run(["pinctrl", "set", str(pin), "op", "dh" if level else "dl"], check=True)
@@ -199,11 +223,20 @@ class Motor:
         self.gpio.output(self.nsleep, 1)
         time.sleep(0.001)
 
-    def forward(self):
-        self._set(1, 0)
+    def forward(self, duty=1.0):
+        """duty < 1: PWM on IN1 with IN2 low, i.e. forward / coast (fast decay), MP6550 Table 1."""
+        if duty >= 1.0:
+            self._set(1, 0)
+        else:
+            self.gpio.output(self.in2, 0)
+            self.gpio.pwm(self.in1, duty)
 
-    def reverse(self):
-        self._set(0, 1)
+    def reverse(self, duty=1.0):
+        if duty >= 1.0:
+            self._set(0, 1)
+        else:
+            self.gpio.output(self.in1, 0)
+            self.gpio.pwm(self.in2, duty)
 
     def brake(self):
         self._set(1, 1)

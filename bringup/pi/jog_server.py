@@ -48,6 +48,19 @@ MAX_CYCLES = 100
 PAUSE_S = (0.0, 30.0)  # rest between the cycles of a run
 WATCHDOG_S = 1.5  # no heartbeat for this long while driving -> stop
 SENSOR_FAIL_N = 20  # consecutive failed ADC reads (~25 ms) while driving -> stop: the stall cut-off is blind
+# Moves to an angle (Jog page). The pot is read every MOVE_POT_EVERY samples while a move runs (~100 Hz on cam02).
+MOVE_POT_EVERY = 2
+DUTY = (0.05, 1.0)
+LEAD_S = 0.02  # brake this long before the target at the current speed (pot latency + braking)
+SETTLE_S = 0.15  # wait after the brake before judging where the shaft stopped
+TOL_DEG = 0.75  # a step or go-to within this is done; outside it, a slow correction move
+CORR_DUTY = 0.3  # speed cap for corrections
+MAX_TRIES = 3  # corrections per target
+NO_MOTION_S = 0.6  # driving but the angle moved < 0.5 deg in this long -> stop (stalled, or too slow to turn);
+GAP_DEG = 35.0  # ...plus the time to cross the pot's ~30 deg gap, where the reading doesn't move, at this speed
+WRONG_WAY_DEG = 5.0  # moving away from the target by this much -> stop: forward must raise the pot voltage
+# (true on cam02 11/13); if the J3 leads are swapped it lowers it, and every move runs away.
+FULL_SPEED_DPS = 300.0  # rough full-speed shaft speed (cam02 11/13: ~325 deg/s); only sets move timeouts
 
 
 class JogController:
@@ -79,7 +92,7 @@ class JogController:
         self.t0 = clock()
         self.seq = 0
         self.buf = collections.deque(maxlen=int(buf_s * rate))
-        self.events = collections.deque(maxlen=8)
+        self.events = collections.deque(maxlen=20)
         self.clipped = 0
         self.i2c_errors = 0
         self.err_run = 0
@@ -91,9 +104,56 @@ class JogController:
         self.cycle_i = None  # last cycle number, for the rows logged during the final brake
         self.cycle_result = None
         self.run = None  # a bench_runs.RunLogger while a logged run is going
+        self.duty = 1.0  # speed of the current drive (PWM duty on the active IN pin)
+        self.want_duty = 1.0
+        # Moves to an angle: a queue of ("to", target_deg, correct, label) and ("pause", s); `move` is the one going.
+        self.moves = collections.deque()
+        self.move = None
+        self.wait_until = None
+        self.move_total = 0
+        self.pot_hist = collections.deque(maxlen=4)
 
     # --- HTTP side ---
-    def request(self, action, seconds=None, cycles=1, pause_s=1.0, run=None):
+    def request_move(self, kind, value, duty=1.0, cycles=1, pause_s=0.3):
+        """Jog page: "step" by `value` deg, "goto" `value` deg (the counted angle since zero), or "wipe": out by
+        `value` deg and back to the start, `cycles` times, `pause_s` apart. Closed loop on the pot angle."""
+        with self.lock:
+            if not self.pot or self.angle is None:
+                raise ValueError("no pot reading")
+            if self.state != "asleep" or self.cycle or self.run or self.move or self.moves:
+                raise ValueError("stop the motor first")
+            duty = min(DUTY[1], max(DUTY[0], float(duty)))
+            value = float(value)
+            if kind == "step":
+                items = [("to", self.angle + value, True, f"step {value:+g}°")]
+            elif kind == "goto":
+                items = [("to", value, True, f"go to {value:g}°")]
+            elif kind == "wipe":
+                n = min(MAX_CYCLES, max(1, int(cycles)))
+                p = min(PAUSE_S[1], max(PAUSE_S[0], float(pause_s)))
+                start, items = self.angle, []
+                for i in range(1, n + 1):
+                    items += [("to", start + value, False, f"wipe {i}/{n} out {value:+g}°"), ("pause", p),
+                              ("to", start, False, f"wipe {i}/{n} back")]
+                    if i < n:
+                        items.append(("pause", p))
+            else:
+                raise ValueError(kind)
+            self.moves.extend(items)
+            self.move_total = sum(1 for it in items if it[0] == "to")
+            self.move_duty = duty
+            self.want = "stop"
+            self.last_hb = self.clock()
+
+    def _cancel_moves(self, now, why):
+        if self.move or self.moves:
+            left = len([it for it in self.moves if it[0] == "to"]) + (1 if self.move else 0)
+            self._event(now, f"moves stopped ({why}); {left} not finished")
+        self.moves.clear()
+        self.move = None
+        self.wait_until = None
+
+    def request(self, action, seconds=None, cycles=1, pause_s=1.0, run=None, duty=1.0):
         """fwd / rev / stop, or "cycle": `cycles` wipe cycles of `seconds` each way, `pause_s` apart.
         `run` (a RunLogger) gets every row until the cycles end, then finish(result)."""
         if action not in ("fwd", "rev", "stop", "cycle"):
@@ -109,10 +169,12 @@ class JogController:
                 self.cycle = {"s": s, "n": n, "i": 1, "done": 0, "stage": "fwd", "pause_s": p, "pause_until": None}
                 self.cycle_i, self.cycle_result, self.run = 1, None, run
                 self.want = "fwd"
-            else:  # Stop, or a manual direction, ends a cycle
+            else:  # Stop, or a manual direction, ends a cycle or a move
                 if self.cycle:
                     self._end_cycle(now, "stop pressed" if action == "stop" else "manual drive", False)
+                self._cancel_moves(now, "stop pressed" if action == "stop" else "manual drive")
                 self.want = action
+                self.want_duty = min(DUTY[1], max(DUTY[0], float(duty if duty is not None else 1.0)))
             self.last_hb = now
 
     def heartbeat(self):
@@ -144,6 +206,7 @@ class JogController:
             self.want = "stop"
             if self.cycle:
                 self._end_cycle(now, why, False)
+            self._cancel_moves(now, why)
         if self.state in ("fwd", "rev"):
             self._event(now, f"{self.state} stopped: {why} (peak {self.peak * 1000:.0f} mA)")
             self.motor.brake()
@@ -152,10 +215,11 @@ class JogController:
             self.last_stop = now
         self.show("brake")
 
-    def _drive(self, now, direction):
+    def _drive(self, now, direction, duty=1.0):
         if self.state == "asleep":
             self.motor.wake()
-        self.motor.forward() if direction == "fwd" else self.motor.reverse()
+        self.motor.forward(duty) if direction == "fwd" else self.motor.reverse(duty)
+        self.duty = duty
         self.state = self.drive_dir = direction
         self.drive_start = now
         self.peak = 0.0
@@ -184,7 +248,7 @@ class JogController:
                             c["pause_until"] = now + BRAKE_S + c["pause_s"]
                         else:
                             self._end_cycle(now, "complete", True)
-                elif not self.cycle and now - self.drive_start > self.settings["max_on_s"]:
+                elif not self.cycle and not self.move and now - self.drive_start > self.settings["max_on_s"]:
                     self._stop(now, f"max run time {self.settings['max_on_s']:g} s")
                 elif self.want != self.state:  # stop pressed, or the other direction: brake first
                     self._stop(now, "stop pressed" if self.want == "stop" else "direction change", keep_want=True)
@@ -201,8 +265,9 @@ class JogController:
                     c["stage"] = self.want = "fwd"
                     self.cycle_i = c["i"]
                     self._drive(now, "fwd")
-            elif self.state == "asleep" and self.want in ("fwd", "rev") and now - self.last_hb <= WATCHDOG_S:
-                self._drive(now, self.want)
+            elif (self.state == "asleep" and not self.move and self.want in ("fwd", "rev")
+                  and now - self.last_hb <= WATCHDOG_S):
+                self._drive(now, self.want, self.want_duty)
 
             if self.state in ("fwd", "rev"):
                 self.sampler.zero_key = self.state
@@ -240,6 +305,9 @@ class JogController:
                     self._stop(now, f"stall cut-off ({self.settings['stall_amps']:g} A for "
                                     f"{self.settings['stall_ms']:g} ms)")
             pot_v = self._read_pot()
+            if pot_v is not None:
+                self.pot_hist.append((now, self.angle))
+            self._move_step(now, pot_v is not None)
             self.seq += 1
             row = {"seq": self.seq, "t_s": t, "state": self.state, "amps": s["amps"], "visen_v": s["visen_v"],
                    "raw": s["raw"], "clipped": s["clipped"], "cycle": self.cycle_i if self.run else None,
@@ -256,7 +324,8 @@ class JogController:
         """Every pot_every ticks: AIN2 single-shot (the ADC leaves continuous mode), then AIN0 continuous again.
         Costs about one conversion plus the restart, so the current rate drops a little (see the status)."""
         self.ticks += 1
-        if not self.pot or not self.pot_every or self.ticks % self.pot_every:
+        every = MOVE_POT_EVERY if (self.move or self.moves) else self.pot_every
+        if not self.pot or not every or self.ticks % every:
             return None
         v = None
         try:
@@ -270,6 +339,73 @@ class JogController:
         except OSError:
             self.pot_errors += 1
         return v
+
+    def _speed_dps(self):
+        h = [x for x in self.pot_hist if x[1] is not None]
+        if len(h) < 2 or h[-1][0] - h[0][0] <= 0:
+            return 0.0
+        return (h[-1][1] - h[0][1]) / (h[-1][0] - h[0][0])
+
+    def _move_step(self, now, fresh):
+        """Runs once per tick: starts queued moves, stops each at its target, corrects, reports."""
+        m = self.move
+        if m is None:
+            if not self.moves or self.state != "asleep" or self.cycle:
+                return
+            if now - self.last_hb > WATCHDOG_S:
+                return self._cancel_moves(now, "lost contact with the page")
+            if self.wait_until is not None and now < self.wait_until:
+                return
+            self.wait_until = None
+            item = self.moves.popleft()
+            if item[0] == "pause":
+                self.wait_until = now + item[1]
+                return
+            _, target, correct, label = item
+            m = self.move = {"target": target, "correct": correct, "label": label, "tries": 0, "driven": False,
+                             "phase": "settle", "settle_until": now, "duty": self.move_duty}
+        if m["phase"] == "drive":
+            if self.state not in ("fwd", "rev"):  # a safety stop already braked and cancelled; nothing to do
+                return
+            sign = self.pot.cal["sign"] * (1 if self.state == "fwd" else -1)  # forward raises the pot voltage
+            remaining = (m["target"] - self.angle) * sign
+            if fresh:
+                # cap the speed: crossing the gap makes the angle jump, and a spike here would brake far too early
+                speed = min(abs(self._speed_dps()), 1.5 * FULL_SPEED_DPS * self.duty)
+                if remaining <= speed * LEAD_S:
+                    self.want = "stop"
+                    self._stop(now, f"{m['label']}: at target", keep_want=True)
+                    m["phase"], m["settle_until"] = "settle", now + BRAKE_S + SETTLE_S
+                    return
+                if abs(self.angle - m["progress_angle"]) >= 0.5:
+                    m["progress_angle"], m["progress_t"] = self.angle, now
+                m["best"] = min(m["best"], remaining)
+                if remaining > m["best"] + WRONG_WAY_DEG:
+                    return self._stop(now, f"{m['label']}: moving away from the target (J3 motor leads swapped?)")
+            if now - m["progress_t"] > m["no_motion_s"]:
+                return self._stop(now, f"{m['label']}: no motion for {m['no_motion_s']:.1f} s (stalled or too slow)")
+            if now - m["t0"] > m["timeout"]:
+                return self._stop(now, f"{m['label']}: timed out after {m['timeout']:.0f} s")
+            return
+        # settle: the motor is (or is about to be) stopped; judge, then finish or drive (again)
+        if self.state != "asleep" or now < m["settle_until"]:
+            return
+        err = self.angle - m["target"]
+        if abs(err) <= TOL_DEG or (m["driven"] and (not m["correct"] or m["tries"] >= MAX_TRIES)):
+            self._event(now, f"{m['label']}: at {self.angle:.1f}° (target {m['target']:.1f}°, "
+                             f"error {err:+.1f}°{', ' + str(m['tries']) + ' correction(s)' if m['tries'] else ''})")
+            self.move = None
+            return
+        direction = "fwd" if (m["target"] - self.angle) * self.pot.cal["sign"] > 0 else "rev"
+        duty = m["duty"] if not m["driven"] else min(m["duty"], CORR_DUTY)
+        if m["driven"]:
+            m["tries"] += 1
+        timeout = abs(err) / (FULL_SPEED_DPS * duty) * 4 + 2.0
+        m.update(phase="drive", driven=True, t0=now, timeout=min(60.0, timeout), progress_angle=self.angle,
+                 progress_t=now, best=abs(err), no_motion_s=NO_MOTION_S + GAP_DEG / (FULL_SPEED_DPS * duty))
+        self.want = direction
+        self.pot_hist.clear()
+        self._drive(now, direction, duty)
 
     def zero_angle(self):
         with self.lock:
@@ -305,7 +441,14 @@ class JogController:
         with self.lock:
             now = self.clock()
             driving = self.state in ("fwd", "rev")
+            mv = None
+            if self.move or self.moves:
+                left = len([it for it in self.moves if it[0] == "to"])
+                mv = {"label": self.move["label"] if self.move else "pause", "phase": self.move["phase"] if self.move else "pause",
+                      "target": round(self.move["target"], 2) if self.move else None,
+                      "done": self.move_total - left - (1 if self.move else 0), "total": self.move_total}
             return {"state": self.state, "want": self.want, "cycle": dict(self.cycle) if self.cycle else None,
+                    "duty": self.duty, "move": mv,
                     "run_id": self.run.meta["id"] if self.run else None, "last_result": self.cycle_result,
                     "run_s": round(now - self.drive_start, 2) if driving else None,
                     "peak_a": round(self.peak, 4), "settings": dict(self.settings), "events": list(self.events),
@@ -446,6 +589,9 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
             if path in ("/", "/index.html"):
                 with open(page, "rb") as f:
                     self._send(200, f.read(), "text/html; charset=utf-8")
+            elif path == "/jog":
+                with open(os.path.join(HERE, "jog_move_page.html"), "rb") as f:
+                    self._send(200, f.read(), "text/html; charset=utf-8")
             elif path == "/runs":
                 with open(runs_page, "rb") as f:
                     self._send(200, f.read(), "text/html; charset=utf-8")
@@ -497,7 +643,10 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT):
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                 if self.path == "/cmd":
-                    ctrl.request(body["action"], body.get("seconds"))
+                    ctrl.request(body["action"], body.get("seconds"), duty=body.get("duty", 1.0))
+                elif self.path == "/move":
+                    ctrl.request_move(body["kind"], body["value"], body.get("duty", 1.0), body.get("cycles", 1),
+                                      body.get("pause_s", 0.3))
                 elif self.path == "/hb":
                     ctrl.heartbeat()
                 elif self.path == "/settings":

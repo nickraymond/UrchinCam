@@ -41,6 +41,10 @@ class FakeGpio:
         self.levels[pin] = level
         self.log.append((pin, level))
 
+    def pwm(self, pin, duty, freq=None):
+        self.levels[pin] = duty if 0 < duty < 1 else int(duty >= 1)
+        self.log.append((pin, ("pwm", duty)))
+
     def close(self):
         pass
 
@@ -60,26 +64,33 @@ class SimMotorADC:
         def output(pin, level):
             write(pin, level)
             a, b = gpio.levels.get(hw.GPIO_IN1, 0), gpio.levels.get(hw.GPIO_IN2, 0)
-            if (a, b) == (0, 1):
+            if a == 0 and b > 0:
                 self.rev_latched = True
-            elif (a, b) in ((0, 0), (1, 0)):
+            elif b == 0:
                 self.rev_latched = False
         gpio.output = output
         self.wipe_phase = None
 
-    # A shaft pot on AIN2 that turns with the motor: pot_vps volts per second, wrapping 3.35 V -> 0 like cam02's.
-    pot_v, pot_vps, pot_last_t = 1.5, 0.5, None
+    # A shaft pot on AIN2 that turns with the motor at pot_vps volts per second. Like cam02's (11/13): the track reads
+    # 0-3.35 V over ~330 deg, and the ~30 deg gap after it (360/98.3 = 3.662 V of travel per turn) reads 0.
+    pot_u, pot_vps, pot_last_t = 1.5, 0.5, None
+    POT_TURN_V, POT_TRACK_V = 360 / 98.3, 3.35
+
+    @property
+    def pot_v(self):
+        v = self.pot_u % self.POT_TURN_V
+        return v if v <= self.POT_TRACK_V else 0.0
 
     def start_continuous(self, channel, fsr=None):
         pass
 
     def _turn_pot(self):
-        now = self.clock.t
+        now = self.clock()  # FakeClock in tests; real time in the desk sim
         if self.pot_last_t is not None:
             g = self.gpio.levels
             a, b = g.get(hw.GPIO_IN1, 0), g.get(hw.GPIO_IN2, 0)
-            d = (1 if (a, b) == (1, 0) else -1 if (a, b) == (0, 1) else 0) if g.get(hw.GPIO_NSLEEP_HB) else 0
-            self.pot_v = (self.pot_v + d * self.pot_vps * (now - self.pot_last_t)) % 3.35
+            d = (a - b) if g.get(hw.GPIO_NSLEEP_HB) else 0  # +1 forward, -1 reverse, PWM duty in between
+            self.pot_u += d * self.pot_vps * (now - self.pot_last_t)
         self.pot_last_t = now
 
     def single_shot(self, channel, fsr):
@@ -98,7 +109,7 @@ class SimMotorADC:
         else:
             a, b = g.get(hw.GPIO_IN1, 0), g.get(hw.GPIO_IN2, 0)
             driving = a != b
-            amps = (self.stall_a if self.wipe_phase in self.jam else self.run_a) if driving else 0.0
+            amps = (self.stall_a if self.wipe_phase in self.jam else self.run_a * abs(a - b)) if driving else 0.0
         visen = amps * wa.ISET_GAIN_A_PER_A * 2000.0
         if g.get(hw.GPIO_NSLEEP_HB):
             visen += self.offset_v[1 if self.rev_latched else 0]
@@ -528,6 +539,88 @@ class TestJog(unittest.TestCase):
         self.assertTrue(all(r["amps"] == 0.0 for r in ctrl.buf))
         self.assertEqual(ctrl.buf[-1]["state"], "asleep")
 
+    # --- moves to an angle (Jog page) ---
+    def _mover(self, vps=2.0):
+        ctrl = self._ctrl(pot_every=10)
+        self.adc.pot_vps = vps  # sim shaft: 2 V/s ~ 197 deg/s at full speed
+        self._run_for(ctrl, 0.1)
+        return ctrl
+
+    def test_step_reaches_target(self):
+        ctrl = self._mover()
+        a0 = ctrl.angle
+        ctrl.request_move("step", 90, duty=1.0)
+        self._run_for(ctrl, 3.0)
+        self.assertIsNone(ctrl.move)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertAlmostEqual(ctrl.angle - a0, 90, delta=jog_server.TOL_DEG + 0.3)
+        self.assertIn("step +90°: at", ctrl.events[-1]["text"])
+
+    def test_slow_step_uses_pwm(self):
+        ctrl = self._mover()
+        a0 = ctrl.angle
+        ctrl.request_move("step", -15, duty=0.25)
+        self._run_for(ctrl, 3.0)
+        self.assertAlmostEqual(ctrl.angle - a0, -15, delta=jog_server.TOL_DEG + 0.3)
+        self.assertIn((hw.GPIO_IN2, ("pwm", 0.25)), self.gpio.log)  # reverse at 25 %
+
+    def test_wipe_by_angle(self):
+        ctrl = self._mover()
+        self.adc.pot_u = 2.6  # start near the top of the track so each wipe crosses the gap
+        self._run_for(ctrl, 0.1)
+        a0 = ctrl.angle
+        ctrl.request_move("wipe", 180, duty=1.0, cycles=3, pause_s=0.2)
+        self.assertEqual(ctrl.status()["move"]["total"], 6)
+        self._run_for(ctrl, 12.0)
+        self.assertIsNone(ctrl.move)
+        outs = [e["text"] for e in ctrl.events if "out" in e["text"]]
+        self.assertEqual(ctrl.status()["move"], None)
+        errs = [float(e["text"].split("error ")[1].split("°")[0]) for e in ctrl.events if "error" in e["text"]]
+        self.assertEqual(len(errs), 6)
+        self.assertTrue(all(abs(x) < 12 for x in errs), errs)  # no early stops at the gap; wipes don't correct
+        self.assertAlmostEqual(ctrl.angle, a0, delta=12)
+
+    def test_no_motion_stops(self):
+        ctrl = self._mover(vps=0.0)  # shaft held: the pot never moves
+        ctrl.request_move("step", 45)
+        self._run_for(ctrl, 2.0)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertIsNone(ctrl.move)
+        self.assertTrue(any("no motion" in e["text"] for e in ctrl.events))
+
+    def test_wrong_way_stops(self):
+        ctrl = self._mover(vps=-2.0)  # motor leads swapped: forward now lowers the pot voltage
+        ctrl.request_move("step", 45)
+        self._run_for(ctrl, 2.0)
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertTrue(any("moving away" in e["text"] for e in ctrl.events))
+
+    def test_stop_cancels_moves(self):
+        ctrl = self._mover()
+        ctrl.request_move("wipe", 90, cycles=5)
+        self._run_for(ctrl, 0.3)
+        ctrl.request("stop")
+        self._run_for(ctrl, 0.5)
+        self.assertEqual((ctrl.state, ctrl.move, len(ctrl.moves)), ("asleep", None, 0))
+        with self.assertRaises(ValueError):  # and nothing queued behind a running move
+            ctrl.request_move("step", 5)
+            ctrl.request_move("step", 5)
+
+    def test_flip_direction_still_reaches_target(self):
+        ctrl = self._mover()
+        ctrl.flip_angle()  # display sign only; moves follow it
+        a0 = ctrl.angle
+        ctrl.request_move("step", 45)
+        self._run_for(ctrl, 3.0)
+        self.assertAlmostEqual(ctrl.angle - a0, 45, delta=jog_server.TOL_DEG + 0.3)
+
+    def test_hold_jog_at_speed(self):
+        ctrl = self._mover()
+        ctrl.request("fwd", duty=0.5)
+        self._run_for(ctrl, 0.5)
+        self.assertEqual((ctrl.state, ctrl.duty), ("fwd", 0.5))
+        self.assertIn((hw.GPIO_IN1, ("pwm", 0.5)), self.gpio.log)
+
     def test_settings_clamped(self):
         ctrl = self._ctrl()
         s = ctrl.set_settings({"stall_amps": 99, "max_on_s": 0, "bogus": 1})
@@ -537,10 +630,12 @@ class TestJog(unittest.TestCase):
             ctrl.request("spin")
 
     def test_page_is_self_contained(self):
-        with open(os.path.join(os.path.dirname(jog_server.__file__), "jog_page.html")) as f:
-            html = f.read()
-        self.assertNotIn("http://", html)
-        self.assertNotIn("https://", html)
+        for name in ("jog_page.html", "runs_page.html", "jog_move_page.html"):
+            with open(os.path.join(os.path.dirname(jog_server.__file__), name)) as f:
+                html = f.read()
+            self.assertNotIn("http://", html, name)
+            self.assertNotIn("https://", html, name)
+            self.assertIn('<a href="/jog"', html, name)  # every page links the other two
 
 
 class TestPot(unittest.TestCase):
