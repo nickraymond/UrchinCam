@@ -31,6 +31,8 @@ MAX_DPS = 600.0  # the shaft can't turn faster than this (cam02 full speed ~325 
 AGREE_V = 0.03  # readings agreeing within this, three in a row, are trusted again after a bad one...
 END_V = 0.35  # ...but after leaving the track at one end, only near an end: the floating ~0.57 V is steady too
 TRACK_V = 3.35
+MOVE_V = 0.02  # ...or when three readings form a possible path that keeps going one way by at least this much:
+# the shaft coming out of the dead zone while still turning (QE 019, N1: a timed cycle never re-trusted at speed)
 
 
 def load_cal(path=CAL_PATH):
@@ -82,11 +84,16 @@ class PotAngle:
                 near_end = lambda x: x < END_V or x > TRACK_V - END_V
                 last3 = [x for x, _ in self.suspect[-3:]]
                 agree = len(self.suspect) >= 3 and max(last3) - min(last3) <= AGREE_V
-                path = len(self.suspect) >= 3 and all(
+                possible = len(self.suspect) >= 3 and all(
                     abs(self.suspect[i][0] - self.suspect[i - 1][0]) * self.cal["deg_per_v"]
                     <= MAX_DPS * max(self.suspect[i][1] - self.suspect[i - 1][1], 0.005) + 3.0
-                    for i in (-2, -1)) and not any(near_end(x) for x in last3)
-                if (agree and (near_end(v) or not near_end(self.last_v))) or (path and not near_end(self.last_v)):
+                    for i in (-2, -1))
+                path = possible and not any(near_end(x) for x in last3)
+                steps = [last3[1] - last3[0], last3[2] - last3[1]] if len(last3) == 3 else []
+                moving = (possible and abs(last3[2] - last3[0]) >= MOVE_V
+                          and (all(d > 0 for d in steps) or all(d < 0 for d in steps)))
+                if ((agree and (near_end(v) or not near_end(self.last_v))) or (path and not near_end(self.last_v))
+                        or moving):
                     self.suspect = []  # out of the dead zone, settled after a fast hand turn, or a stall: trust it
                 else:
                     self.ok = False

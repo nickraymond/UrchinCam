@@ -79,7 +79,10 @@ STATUS_MAX_AGE_S = 0.04  # stream clients share one status built at most this of
 # the motor draws at least NO_MOTION_MIN_A. QE 019 (11/15): a stall under the cut-off could drive for minutes in cycle
 # mode. The current floor keeps free-spinning runs with the pot uncoupled (~80-140 mA, 11/13) from tripping it.
 NO_MOTION_MIN_A = 0.15
-TRACK_END_DEG = 3.0  # manual holds stop this short of either end of the pot's safe track (dead zone beyond)
+TRACK_END_DEG = 3.0  # manual holds stop this short of either end of the pot's safe track (dead zone beyond)...
+TRACK_END_S = 0.03  # ...or this many seconds of travel at the current speed, whichever is more
+RAW_MOVE_V = 0.005  # any change of the raw pot voltage this big counts as motion for the no-motion stop, trusted or
+# not (QE 019, N1): the reading jumps around in the dead zone while turning; a stalled shaft holds within ~1-2 mV
 MAX_BODY = 65536  # bytes accepted in a POST body
 MOTION_CAL_PATH = os.path.expanduser("~/NereusData/UrchinCam/motion_cal.json")  # learned brake leads, kept across restarts
 # Move methods. "simple": drive at the set speed, brake one learned lead before the target (lead_s).
@@ -148,7 +151,8 @@ class JogController:
         self.pot_hist = collections.deque(maxlen=4)
         self.lead_s = LEAD_S
         self.leads = {}  # approach method: learned lead per (direction sign, region)
-        self.dp_angle, self.dp_t = None, 0.0
+        self.dp_raw, self.dp_t = None, 0.0
+        self.cal_writer = None  # thread writing motion_cal.json (file I/O stays off the control loop)
         self.motion_cal_path = None  # set by main(): learned leads are saved there and loaded at start
         self.move_method = "simple"
         self.move_log = collections.deque(maxlen=500)  # one record per finished move (Jog page, comparisons)
@@ -281,7 +285,7 @@ class JogController:
         self.motor.forward(duty) if direction == "fwd" else self.motor.reverse(duty)
         self.duty = duty
         self.pwm_reset_done, self.nocur_since = False, None
-        self.dp_angle, self.dp_t = self.angle, now  # last time the shaft was seen moving (no-motion guard)
+        self.dp_raw, self.dp_t = self.pot_v, now  # last time the shaft was seen moving (no-motion guard)
         self.state = self.drive_dir = direction
         self.drive_start = now
         self.peak = 0.0
@@ -455,16 +459,17 @@ class JogController:
         stop at the ends of the pot's safe track and when the pot reading is untrusted (dead zone)."""
         if self.state not in ("fwd", "rev") or self.move or not self.pot or self.angle is None:
             return
-        if self.dp_angle is None:
-            self.dp_angle, self.dp_t = self.angle, now
-        if fresh and self.pot.ok and abs(self.angle - self.dp_angle) >= 0.5:
-            self.dp_angle, self.dp_t = self.angle, now
+        if self.dp_raw is None:
+            self.dp_raw, self.dp_t = self.pot_v, now
+        if fresh and self.pot_v is not None and abs(self.pot_v - self.dp_raw) >= RAW_MOVE_V:
+            self.dp_raw, self.dp_t = self.pot_v, now
         if not self.cycle:  # a hold (Drive or Jog page)
             if not self.pot.ok:
                 return self._stop(now, "pot reading unreliable (dead zone?)")
             room = self.pot.room_deg()
             up = (self.state == "fwd") == (self.pot.cal["sign"] > 0)  # forward raises the pot voltage
-            if room and room["plus" if up else "minus"] < TRACK_END_DEG:
+            margin = max(TRACK_END_DEG, abs(self._speed_dps()) * TRACK_END_S)
+            if room and room["plus" if up else "minus"] < margin:
                 return self._stop(now, "end of the pot's safe track")
         window = NO_MOTION_S + GAP_DEG / (FULL_SPEED_DPS * self.duty)
         if now - self.dp_t > window:
@@ -490,14 +495,22 @@ class JogController:
             pass
 
     def _save_motion_cal(self):
+        """Called from tick(): the write happens on a short-lived thread, not on the control loop."""
         if not self.motion_cal_path:
             return
+        snap = {"lead_s": self.lead_s, "leads": {f"{k[0]},{k[1]}": v for k, v in self.leads.items()}}
+        self.cal_writer = threading.Thread(target=self._write_motion_cal, args=(self.motion_cal_path, snap),
+                                           daemon=True)
+        self.cal_writer.start()
+
+    @staticmethod
+    def _write_motion_cal(path, snap):
         try:
-            os.makedirs(os.path.dirname(self.motion_cal_path), exist_ok=True)
-            tmp = self.motion_cal_path + ".tmp"
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
             with open(tmp, "w") as f:
-                json.dump({"lead_s": self.lead_s, "leads": {f"{k[0]},{k[1]}": v for k, v in self.leads.items()}}, f)
-            os.replace(tmp, self.motion_cal_path)
+                json.dump(snap, f)
+            os.replace(tmp, path)
         except OSError:
             pass
 
@@ -860,6 +873,8 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT, hosts=None):
     status_cache = StatusCache(ctrl, extra)
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = 15  # seconds of silence on a socket before the handler gives up (a short body can't hold a thread)
+
         def log_message(self, fmt, *args):  # quiet: the stream would flood the log
             pass
 
@@ -892,6 +907,8 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT, hosts=None):
             raise KeyError(path)
 
         def do_GET(self):
+            if hosts is not None and self.headers.get("Host", "") not in hosts:  # DNS rebinding reading data
+                return self._send(403, '{"error": "unknown Host"}')
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
                 with open(page, "rb") as f:
@@ -1013,9 +1030,9 @@ def safe_tick(ctrl, motor):
         return None, False
 
 
-def allowed_hosts(addrs, port):
-    """Host headers the bench answers POSTs for: its bound addresses and localhost (SSH tunnel)."""
-    return {f"{a}:{port}" for a in list(addrs) + ["localhost", "127.0.0.1"]}
+def allowed_hosts(addrs, port, names=()):
+    """Host headers the bench answers for: its bound addresses, localhost (SSH tunnel) and its own host names."""
+    return {f"{a}:{port}" for a in list(addrs) + ["localhost", "127.0.0.1"] + list(names)}
 
 
 def main(argv=None):
@@ -1028,6 +1045,7 @@ def main(argv=None):
     p.add_argument("--rate", type=int, default=860, choices=[128, 250, 475, 860])
     p.add_argument("--r-iset", type=float, default=2000.0)
     p.add_argument("--led-level", type=float, default=0.02, help="LED1 phase colors; 0 = off")
+    p.add_argument("--allow-host", default="", help="extra Host names to answer, comma list (e.g. a MagicDNS name)")
     p.add_argument("--pot-every", type=int, default=10,
                    help="read the shaft pot (AIN2) every N current samples; 0 = no pot (pot.py)")
     args = p.parse_args(argv)
@@ -1108,7 +1126,8 @@ def serve(args, hw, gpio, motor, run_dir):
     servers = []
     try:
         addrs = bind_addresses(args.bind)
-        hosts = allowed_hosts(addrs, args.port)
+        import socket
+        hosts = allowed_hosts(addrs, args.port, [socket.gethostname()] + [h for h in args.allow_host.split(",") if h])
         for addr in addrs:
             srv = ThreadingHTTPServer((addr, args.port), make_handler(ctrl, extra, hosts=hosts))
             srv.daemon_threads = True

@@ -271,6 +271,8 @@ def parse_args(argv=None):
             p.error(f"--{name.replace('_', '-')} must be 0-{MAX_STROKE_S} s")
     if not 1 <= a.wipes <= MAX_WIPES:
         p.error(f"--wipes must be 1-{MAX_WIPES}")
+    if not 20 <= a.stall_ms <= 2000:
+        p.error("--stall-ms must be 20-2000")
     if not 0 < a.stall_amps <= MAX_STALL_AMPS:
         p.error(f"--stall-amps must be above 0 and at most {MAX_STALL_AMPS} A (the MP6550's 2.5 A typ trip)")
     return a

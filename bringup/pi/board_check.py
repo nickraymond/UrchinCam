@@ -136,12 +136,16 @@ def cmd_motor_open(args):
             if action is not motor.sleep:
                 motor.wake()
             action()
-            time.sleep(args.seconds)
-            mv = visen_mv(adc)
-            if abs(mv) > CUTOFF_MV:  # J3 must be open: current means a motor or a short is on J3
-                motor.sleep()
-                print(f"{label}: FAIL VISEN {mv:.1f} mV (> {CUTOFF_MV:g} mV = 0.5 A): is J3 open? stopped")
-                return False
+            end = time.monotonic() + args.seconds
+            while True:  # watch VISEN through the whole step, not once at the end
+                mv = visen_mv(adc)
+                if abs(mv) > CUTOFF_MV:  # J3 must be open: current means a motor or a short is on J3
+                    motor.sleep()
+                    print(f"{label}: FAIL VISEN {mv:.1f} mV (> {CUTOFF_MV:g} mV = 0.5 A): is J3 open? stopped")
+                    return False
+                if time.monotonic() >= end:
+                    break
+                time.sleep(0.05)
             # Card 6.5 (changed 11/12 after the first runs, see VISEN_SCALE.md): asleep < 2 mV; awake, record the
             # no-load offset (cam02: 4.4 mV forward / coast, 5.5 mV reverse); above 15 mV means current is flowing.
             bar = 2.0 if action is motor.sleep else wl_zero_max_mv

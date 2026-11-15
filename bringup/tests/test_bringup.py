@@ -11,6 +11,7 @@ import unittest
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pi"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 
 import bench_runs  # noqa: E402
 import board_check  # noqa: E402
@@ -20,6 +21,7 @@ import pot  # noqa: E402
 import urchin_hw as hw  # noqa: E402
 import wipe_analysis as wa  # noqa: E402
 import wipe_logger  # noqa: E402
+import wipe_repeat  # noqa: E402
 
 
 class FakeClock:
@@ -721,6 +723,23 @@ class TestJog(unittest.TestCase):
         self.assertTrue(p.ok)  # a possible path after the jump: trusted again without stopping
         self.assertAlmostEqual(p.angle, (1.5860 - 0.774) * 98.3, delta=0.1)
 
+    def test_trusted_again_on_a_moving_path_out_of_the_dead_zone(self):
+        # no flat 0 V stretch: the shaft comes out of the gap still turning, readings ~15 ms apart (QE 019, N1)
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=3.0))
+        t = 0.0
+        for v in (3.20, 3.27, 3.33):
+            t += 0.015
+            p.update(v, t)
+        for v in (0.749, 0.575, 0.649):  # floating in the gap
+            t += 0.015
+            p.update(v, t)
+            self.assertFalse(p.ok)
+        for v in (0.02, 0.07, 0.12):  # back on the track, rising ~5 deg per reading
+            t += 0.015
+            p.update(v, t)
+        self.assertTrue(p.ok)
+        self.assertAlmostEqual(p.angle, (0.12 + 360 / 98.3 - 3.0) * 98.3, delta=0.1)
+
     def test_fast_hand_turn_mid_track_is_re_trusted(self):
         p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
         p.update(1.0, 0.0)
@@ -840,6 +859,65 @@ class TestJog(unittest.TestCase):
         self.assertIsNone(ctrl.cycle)
         self.assertTrue(any("no motion" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
 
+    def test_loaded_cycles_through_the_dead_zone_complete(self):
+        # QE 019 N1: timed cycles at >= 0.15 A turning the shaft through the pot's dead zone must not stop as stalls
+        for vps in (0.35, 0.5, 1.0, 2.0, 3.3):  # ~34 to ~325 deg/s; at 34 the gap takes longer than the window
+            for amps in (0.15, 0.40):
+                with self.subTest(vps=vps, amps=amps):
+                    ctrl = self._mover(vps=vps)
+                    self.adc.run_a = amps
+                    self.adc.pot_u = 2.9  # each stroke crosses 3.35 V into the dead zone and out the other side
+                    ctrl.request("cycle", 3.0, 2, 0.3)
+                    self._run_for(ctrl, 15.0)  # 2 x (3 s + 3 s) plus brakes and rests
+                    self.assertIsNone(ctrl.cycle)
+                    self.assertTrue(ctrl.cycle_result["complete"], [e["text"] for e in ctrl.events])
+                    self.assertFalse(any("no motion" in e["text"] for e in ctrl.events))
+
+    def test_pot_trusted_again_while_turning_out_of_the_dead_zone(self):
+        ctrl = self._mover(vps=3.3)
+        self.adc.pot_u = 3.0
+        self._run_for(ctrl, 0.1)
+        ctrl.request("cycle", 2.0, 1, 0.3)
+        self._run_for(ctrl, 1.2)  # forward, across the gap, still turning
+        self.assertEqual(ctrl.state, "fwd")
+        self.assertTrue(ctrl.pot.ok)
+
+    def test_hold_stops_on_an_untrusted_pot(self):
+        ctrl = self._mover()
+        ctrl.request("fwd")
+        self._run_for(ctrl, 0.2)
+        self.adc.pot_u += 1.2  # impossible jump
+        self._run_for(ctrl, 0.3)
+        self.assertIn(ctrl.state, ("brake", "asleep"))
+        self.assertTrue(any("pot reading unreliable" in e["text"] for e in ctrl.events))
+
+    def test_hold_stops_at_the_bottom_end_in_reverse(self):
+        ctrl = self._mover()
+        self.adc.pot_u = 0.4  # ~29 deg above the bottom of SAFE_V; reverse lowers the voltage
+        self._run_for(ctrl, 0.2)
+        ctrl.request("rev")
+        self._run_for(ctrl, 1.0)
+        self.assertTrue(any("end of the pot's safe track" in e["text"] for e in ctrl.events))
+        self.assertGreater(ctrl.pot.last_v, 0.10)
+
+    def test_track_end_follows_the_flipped_sign(self):
+        ctrl = self._mover()
+        ctrl.flip_angle()  # sign -1: the angle now falls going forward; the voltage still rises
+        self.adc.pot_u = 3.0
+        self._run_for(ctrl, 0.2)
+        ctrl.request("fwd")
+        self._run_for(ctrl, 1.0)
+        self.assertTrue(any("end of the pot's safe track" in e["text"] for e in ctrl.events))
+        self.assertLess(ctrl.pot.last_v, 3.25)
+
+    def test_track_end_margin_stops_short_of_the_safe_end(self):
+        ctrl = self._mover(vps=1.0)  # ~98 deg/s: the 3 deg margin decides
+        self.adc.pot_u = 3.0
+        self._run_for(ctrl, 0.2)
+        ctrl.request("fwd")
+        self._run_for(ctrl, 1.5)
+        self.assertLess(ctrl.pot.last_v, 3.25)  # with no margin it would only stop past 3.25 V
+
     def test_free_spin_with_pot_uncoupled_keeps_running(self):
         ctrl = self._mover(vps=0.0)  # pot not turning, motor free: ~60 mA, under NO_MOTION_MIN_A
         ctrl.request("cycle", 3.0, 1, 0.5)
@@ -929,6 +1007,7 @@ class TestJog(unittest.TestCase):
             self.assertEqual(a.lead_s, jog_server.LEAD_S)
             a.request_move("step", 60)
             self._run_for(a, 3.0)
+            a.cal_writer.join(2)  # written off the control loop
             learned = a.lead_s
             self.assertNotEqual(learned, jog_server.LEAD_S)
             b = self._mover()
@@ -1069,11 +1148,39 @@ class TestHttpGuard(unittest.TestCase):
     def test_unknown_host_is_refused(self):  # DNS rebinding
         self.assertEqual(self.post("/cmd", '{"action": "fwd"}', host="evil.example:8765"), 403)
 
+    def test_get_with_an_unknown_host_is_refused(self):
+        c = self.http.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", "/api/moves", headers={"Host": "evil.example:8765"})
+        r = c.getresponse()
+        r.read()
+        self.assertEqual(r.status, 403)
+        c.request("GET", "/api/moves")
+        r = c.getresponse()
+        r.read()
+        self.assertEqual(r.status, 200)
+        c.close()
+
     def test_bad_bodies_get_400_not_a_dropped_connection(self):
         self.assertEqual(self.post("/cmd", '["fwd"]'), 400)
         self.assertEqual(self.post("/move", '{"kind": "step"}'), 400)
         big = '{"x": "' + "a" * (jog_server.MAX_BODY + 10) + '"}'
         self.assertEqual(self.post("/cmd", big), 413)
+
+
+class TestWipeRepeat(unittest.TestCase):
+    def test_stage10_summary(self):
+        mk = lambda e, j: {"error_deg": e, "energy_j": j}
+        moves = [mk(-3.5, 0.7), mk(0.4, 0.72), mk(1.0, 0.71), mk(-6.0, 0.73)]
+        s = wipe_repeat.summarize(moves)
+        self.assertEqual((s["strokes"], s["within_bar"], s["over_worst"]), (4, 2, 1))
+        self.assertEqual(s["first_stroke_deg"], -3.5)
+        self.assertAlmostEqual(s["energy_per_wipe_j"]["median"], (1.42 + 1.44) / 2)
+
+    def test_refuses_to_overwrite_a_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(SystemExit) as cm:
+                wipe_repeat.main(["--host", "127.0.0.1:1", "--motor", "m", "--out", d])
+            self.assertIn("exists", str(cm.exception.code))
 
 
 class TestScriptBounds(unittest.TestCase):
@@ -1083,6 +1190,8 @@ class TestScriptBounds(unittest.TestCase):
             wipe_logger.parse_args(base + ["--wipes", "5000"])
         with self.assertRaises(SystemExit):
             wipe_logger.parse_args(base + ["--stall-amps", "5"])
+        with self.assertRaises(SystemExit):
+            wipe_logger.parse_args(base + ["--stall-ms", "100000"])
         self.assertEqual(wipe_logger.parse_args(base + ["--wipes", "10"]).wipes, 10)
 
     def test_board_check_motor_open_seconds_bound(self):

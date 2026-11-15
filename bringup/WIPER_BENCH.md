@@ -20,8 +20,8 @@ wipe by 4-7 deg. A pre-registered repeat is proposed in the test card (stage 10)
 ### Every comparison run on 11/15
 
 0 -> +90 -> 0 deg at 100 % speed, 0.3 s rest at each end, brush on the raised surface (0-90 deg), 1000:1 motor,
-current cut-off at its default 0.5 A / 250 ms (settings aren't saved and every run followed a server restart; a
-change on a page would not have been logged). Folders `~/NereusData/UrchinCam/2026-11-15_<time>_compare/` hold
+current cut-off at its default 0.5 A / 250 ms (settings aren't saved across restarts, and every run except 1247
+followed one; a change on a page would not have been logged). Folders `~/NereusData/UrchinCam/2026-11-15_<time>_compare/` hold
 `moves.json` and per-method `samples_*.csv`.
 
 | folder | code | cam02 services | method | strokes | mean | median | p95 | max | within 3 deg | 1st stroke | J / wipe |
@@ -40,11 +40,13 @@ change on a page would not have been logged). Folders `~/NereusData/UrchinCam/20
 | `1334` | 6254b8f | 11 services off | simple | 60 | 1.02 | 0.88 | 2.37 | 2.81 | 60 / 60 | -1.22 | 1.433 |
 | `1334` | 6254b8f | 11 services off | approach | 60 | 0.93 | 0.46 | 3.00 | 7.80 | 57 / 60 | -7.80 | 1.341 |
 
-Pooled simple strokes from the 30-wipe runs: 349 of 360 within 3 deg. Errors are in degrees.
+Pooled simple strokes from the 30-wipe runs: 349 of 360 within 3 deg. Errors are in degrees. On the n = 16 rows
+the p95 is the 15th of 16 values (interpolated it would be 3.73 / 3.44 / 3.64).
 
 - **Lost run:** the first comparison (about 12:31, code 97c1458, sub-100 % PWM dropping out) wrote to
-  `2026-11-15_compare/`, and the next run (12:3x, dced42d) overwrote it. Its numbers quoted earlier in the session
-  (simple 1.50 J, approach 1.56 J per wipe) have no surviving raw data.
+  `2026-11-15_compare/`, and the next run (12:3x, dced42d) overwrote its `moves.json`. Its per-move numbers quoted in
+  the session (simple 1.50 J, approach 1.56 J per wipe) can't be recomputed; its samples survive in the session log
+  `from_cam02/2026-11-15_jog_203215`. `bringup/tools/wipe_repeat.py` now refuses to write into an existing folder.
 - **First stroke after a restart:** in 4 of the 5 streamed-pot simple runs the first stroke missed by 4-7 deg
   (the brake lead restarts untrained; `1247` ran without a restart and missed by 1.7). Leaving out the first wipe,
   1318-1334 range 57-58 of 58 within 3 deg, max 2.78-4.68 deg (diagnostic only, not a result). Since this PR the
@@ -85,8 +87,8 @@ Motor only, 5 V assumed. Move time includes the 0.1 s brake and 0.15 s settle, w
   green-blue stays ~4.96 kOhm while turning; white sweeps between them. Value ~5 kOhm (body code 502); make not
   confirmed (logo looks like Amphenol Piher).
 - Scale: **98.3 deg/V** (11 hand turns of ~90 deg, median 0.916 V, range 0.82-1.07 V, about +-10 %). Check against
-  the motor: 0.6 s strokes read 194-197 deg on the pot where Nick estimated ~180 deg by eye (printed to the session,
-  11/15; samples in `from_cam02/2026-11-15_jog_*`).
+  the motor: 0.6 s strokes read 194-197 deg on the pot where Nick estimated ~180 deg by eye (printed to the session;
+  samples in `from_cam02/2026-11-14_jog_050943`).
 - It turns all the way round (no end stops). The track reads **0 to 3.35 V** over ~330 deg.
 - **Dead zone** (~30 deg, inferred from 360 - 3.35 V x 98.3): past 3.35 V the wiper first **floats** (reads ~0.57 V,
   like an unconnected ADC input) and then sits on the **0 V end terminal** (reads 0.000 V). Both look like real track
@@ -128,6 +130,16 @@ JSON, to the bench's own address, from the same origin. LED1 shows green forward
 
 The heartbeat is global: any open page that is driving or moving keeps it alive.
 
+Limits of the no-motion stop (QE 019): it needs the pot (`--pot-every` > 0, the default) and a current of at least
+0.15 A; below 0.15 A, or with no pot, a jammed shaft is driven for the whole stroke time of a timed cycle (up to 30 s)
+and only the 0.5 A cut-off can stop it. The stall current at reduced duty is not measured (stage 9 not run).
+
+Getting back from the dead zone: a hold stops at once and a move is refused while the pot is untrusted. Put the
+motor to sleep (STOP), turn the shaft by hand back onto the track until the page shows a pot reading between 0.10 and
+3.25 V, then carry on. When the service stops it puts the bridge to sleep and releases the pins; the MP6550's
+internal pull-downs (datasheet p. 3) then hold IN1/IN2 low, so it can't drive (nSLEEP may still read high from the
+Pi's default pull, as seen at boot: the bridge coasts). So `jog-bench.service` has no `ExecStopPost`.
+
 ## Things that bit us, and the fixes
 
 | problem | cause (evidence) | fix |
@@ -149,15 +161,17 @@ nereus_power_dashboard, lifepo4wered-daemon, bluetooth, ModemManager, avahi-daem
 restore command: cam02 `~/NereusData/UrchinCam/services_disabled_2026-11-15.txt` (copy in `2026-11-15_1334_compare/`).
 The system journal is kept across reboots (`/etc/systemd/journald.conf.d/90-persistent.conf`).
 
-Control-loop pauses over 15 ms per 30-wipe run, read from `/api/loop` right after each run and printed to the session
-only (not saved): 1323: 25 (longest 31 ms); 1325: 13 (32 ms); 1331: 21 (37 ms); 1334: 10 (56 ms; 5 during moves,
-11-18 ms; the 56 ms one in the pot read between moves). `2026-11-15_1334_compare/api_loop_after_run.json` is a later
-snapshot that also covers an hour of idle time and an `apt install` (1.17 s gap), so it doesn't isolate the run.
+Control-loop pauses over 15 ms, read from `/api/loop` after each run and printed to the session only (not saved):
+1323: 25 (longest 31 ms); 1325: 13 (32 ms); 1331: 21 (37 ms); 1334: 10 (56 ms). These counts cover the whole server
+session, positioning moves and idle time included, not just the 30 wipes; my "5 during moves" for 1334 does not
+reproduce: QE 019 found 3 in that run's window in the later saved snapshot
+(`2026-11-15_1334_compare/api_loop_after_run.json`, which also covers an hour of idle time and an `apt install` with a
+1.17 s gap), none in a drive segment. Stage 10 saves `loop.json` per run.
 
 ## Motor and load (same rig)
 
-- Free shaft, 5 V: 260:1 78-97 mA, 1000:1 90-133 mA (11/13; `from_cam02/2026-11-13_motor_free_260`,
-  `_motor_free_1000`, `_motor_free_1000_r2`). Reverse draws more than forward on both; Nick's meter read 4.92-4.94 V at
+- Free shaft, 5 V: 260:1 78-97 mA (`from_cam02/2026-11-13_motor_free_260`); 1000:1 90-133 mA
+  (`_motor_free_1000`) and 102-142 mA after Nick cleared a rub (`_motor_free_1000_r2`) (11/13). Reverse draws more than forward on both; Nick's meter read 4.92-4.94 V at
   the motor in both directions (chat, 11/13, `_vcheck_1000` holds the current), so it's the motor/gearbox.
 - On the shaft with the seal, 1000:1 (`2026-11-15_char/results.json`, one 0.3 s pulse per duty per direction):
   speed 50 % ~30 deg/s, 60 % ~96-115, 80 % ~185-206, 100 % ~351-374 deg/s; coast after the brake 0.3 deg (50 %) to
