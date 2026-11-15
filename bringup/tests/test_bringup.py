@@ -658,6 +658,49 @@ class TestJog(unittest.TestCase):
         self._run_for(ctrl, 3.0)
         self.assertAlmostEqual(ctrl.angle - a0, 45, delta=jog_server.TOL_DEG + 0.3)
 
+    def test_approach_method_slows_near_target_and_logs(self):
+        ctrl = self._mover()
+        a0 = ctrl.angle
+        ctrl.request_move("step", 90, duty=1.0, method="approach")
+        self._run_for(ctrl, 3.0)
+        # the sim has no inertia, so the untrained lead stops it a little short; real coast is what the lead learns
+        self.assertAlmostEqual(ctrl.angle - a0, 90, delta=1.5)
+        self.assertIn((hw.GPIO_IN1, ("pwm", jog_server.APPROACH_DUTY)), self.gpio.log)
+        rec = ctrl.move_log[-1]
+        self.assertEqual((rec["method"], rec["dir"], rec["region"]), ("approach", "fwd", "surface"))  # 0 -> 90 deg
+        self.assertGreater(rec["energy_j"], 0)
+        self.assertGreater(rec["duration_s"], 0)
+        self.assertEqual(ctrl.status()["move_log"][-1]["n"], rec["n"])
+
+    def test_approach_bumps_speed_when_slow(self):
+        ctrl = self._mover(vps=0.5)  # ~49 deg/s at 100 %: below the 40 deg/s floor at 60 %
+        ctrl.request_move("step", 45, duty=1.0, method="approach")
+        self._run_for(ctrl, 5.0)
+        duties = [d for pin, d in self.gpio.log if pin == hw.GPIO_IN1 and isinstance(d, tuple)]
+        self.assertIn(("pwm", jog_server.APPROACH_DUTY), duties)
+        self.assertTrue(any(d[1] > jog_server.APPROACH_DUTY + 0.05 for d in duties))  # bumped up
+        self.assertIsNone(ctrl.move)
+
+    def test_simple_and_approach_learn_separate_leads(self):
+        ctrl = self._mover()
+        ctrl.request_move("wipe", 90, duty=1.0, cycles=2, method="approach")
+        self._run_for(ctrl, 6.0)
+        self.assertEqual(len([r for r in ctrl.move_log if r["method"] == "approach"]), 4)
+        self.assertTrue(set(ctrl.status()["leads"]) <= {"+free", "-free", "+surface", "-surface"})
+        with self.assertRaises(ValueError):
+            ctrl.request_move("step", 5, method="pid")
+
+    def test_no_drive_current_guard(self):
+        ctrl = self._mover()
+        dead = lambda pin, duty, freq=None: self.gpio.output(pin, 0)  # PWM that drives nothing (11/15 bug)
+        self.gpio.pwm = dead
+        ctrl.request("fwd", duty=0.5)
+        self._run_for(ctrl, 1.5)
+        texts = [e["text"] for e in ctrl.events]
+        self.assertTrue(any("re-creating the PWM" in x for x in texts), texts)
+        self.assertTrue(any("no drive current at 50%" in x and "stopped" in x for x in texts), texts)
+        self.assertEqual(ctrl.state, "asleep")
+
     def test_hold_jog_at_speed(self):
         ctrl = self._mover()
         ctrl.request("fwd", duty=0.5)

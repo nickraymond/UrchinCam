@@ -90,7 +90,7 @@ tr.sel td { box-shadow: inset 0 0 0 9999px rgba(37,99,235,.08); }
 .holdbtn.on { background: var(--ink); color: var(--panel); }
 .stopbig { height: 64px; min-width: 120px; font-size: 20px; font-weight: 800; border-width: 2px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-#angle-plot { height: 220px; } #current-plot { height: 180px; }
+#angle-plot { height: 220px; } #current-plot { height: 180px; } #ca-plot { height: 240px; }
 .movebar { font-size: 14px; color: var(--ink2); min-height: 20px; }
 ul.events { list-style: none; margin: 0; padding: 0; font-size: 13px; color: var(--ink2); }
 ul.events li { padding: 3px 0; border-top: 1px solid var(--line); }
@@ -133,8 +133,10 @@ ul.events li:first-child { border-top: 0; }
     <div class="form">
       <label>Step size (°)<input id="f-step" type="number" min="0.1" max="3600" step="0.5" value="15">
         <span class="chips" id="c-step"></span></label>
-      <label>Speed (% of full)<input id="f-speed" type="number" min="5" max="100" step="5" value="50">
+      <label>Speed (% of full)<input id="f-speed" type="number" min="5" max="100" step="5" value="100">
         <span class="chips" id="c-speed"></span></label>
+      <label>Method<select id="f-method"><option value="simple">Simple: set speed, brake early</option>
+        <option value="approach">Approach: slow down for the last 25°</option></select></label>
     </div>
     <div class="row" style="margin-top:12px">
       <button class="stepbtn" id="b-minus">◀ − step</button>
@@ -182,6 +184,18 @@ ul.events li:first-child { border-top: 0; }
     <canvas id="current-plot"></canvas>
     <p class="note">Top: angle counted since zero. Bottom: motor current (mA), dashed = cut-off. Green band = forward,
       red = reverse. Hover for values.</p>
+  </section>
+
+  <section class="panel">
+    <div class="head"><h2>Current vs angle</h2><span class="note">last plot window · shaded = brush on the surface (0–90°)</span></div>
+    <canvas id="ca-plot"></canvas>
+  </section>
+
+  <section class="panel">
+    <h2>Moves</h2>
+    <div class="tablewrap"><table id="moves"></table></div>
+    <p class="note">Error = where it stopped minus the target. Energy = motor current × 5 V (assumed) over the move,
+      corrections included.</p>
   </section>
 
   <section class="panel">
@@ -315,14 +329,15 @@ async function cmd(path, body) {
   try { await post(path, body); } catch (e) { $("err").textContent = e.message; }
 }
 const stopAll = () => { holding = null; syncHold(); post("/cmd", { action: "stop" }).catch(() => {}); };
-const step = sign => cmd("/move", { kind: "step", value: sign * Math.abs(+$("f-step").value), duty: duty() });
+const method = () => $("f-method").value;
+const step = sign => cmd("/move", { kind: "step", value: sign * Math.abs(+$("f-step").value), duty: duty(), method: method() });
 $("b-plus").addEventListener("click", () => step(+1));
 $("b-minus").addEventListener("click", () => step(-1));
 $("b-stop").addEventListener("pointerdown", e => { e.preventDefault(); stopAll(); });
 $("b-zero").addEventListener("click", () => post("/pot/zero").catch(e => { $("err").textContent = e.message; }));
-$("b-home").addEventListener("click", () => cmd("/move", { kind: "goto", value: 0, duty: duty() }));
+$("b-home").addEventListener("click", () => cmd("/move", { kind: "goto", value: 0, duty: duty(), method: method() }));
 $("b-wipe").addEventListener("click", () => cmd("/move", { kind: "wipe", value: +$("w-sweep").value,
-  cycles: +$("w-cycles").value, pause_s: +$("w-pause").value, duty: duty() }));
+  cycles: +$("w-cycles").value, pause_s: +$("w-pause").value, duty: duty(), method: method() }));
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT") { if (e.key === "Escape") stopAll(); return; }
   if (e.key === "ArrowRight") { e.preventDefault(); step(+1); }
@@ -371,7 +386,7 @@ function connect() {
     const cut = T.length ? T[T.length - 1] - 65 : 0;
     let k = 0; while (k < T.length && T[k] < cut) k++;
     if (k) { T.splice(0, k); A.splice(0, k); S.splice(0, k); G.splice(0, k); }
-    status = m.status; render();
+    status = m.status; render(); renderMoves(status.move_log || []);
     anglePlot.data = currentPlot.data = { T, A, S, G };
     currentPlot.stallMa = status.settings.stall_amps * 1000;
     anglePlot.dirty = currentPlot.dirty = true;
@@ -417,6 +432,53 @@ function render() {
     }
   }
 }
+// ---------- current vs angle ----------
+const cav = $("ca-plot"), cax = cav.getContext("2d");
+function drawCA() {
+  const dpr = window.devicePixelRatio || 1, W = cav.clientWidth, H = cav.clientHeight;
+  if (cav.width !== W * dpr || cav.height !== H * dpr) { cav.width = W * dpr; cav.height = H * dpr; }
+  cax.setTransform(dpr, 0, 0, dpr, 0, 0); cax.clearRect(0, 0, W, H);
+  const L = 52, R = 10, Tp = 8, B = 26, pw = W - L - R, ph = H - Tp - B;
+  const win = anglePlot.opts.live, tEnd = T.length ? T[T.length - 1] : 0;
+  const pts = [];
+  for (let i = lowerBound(T, tEnd - win); i < T.length; i++)
+    if (G[i] != null && (S[i] === "f" || S[i] === "r")) pts.push([G[i], A[i] * 1000, S[i]]);
+  let x0 = -30, x1 = 120, y1 = 300;
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const xs = niceStep(x1 - x0); x0 = Math.floor(x0 / xs) * xs; x1 = Math.ceil(x1 / xs) * xs;
+  const ys = niceStep(y1 * 1.1); y1 = Math.ceil(y1 * 1.1 / ys) * ys;
+  const X = v => L + (v - x0) / (x1 - x0) * pw, Y = v => Tp + (y1 - v) / y1 * ph;
+  cax.fillStyle = css("--grid"); cax.fillRect(X(0), Tp, X(90) - X(0), ph);
+  cax.strokeStyle = css("--grid"); cax.fillStyle = css("--muted"); cax.lineWidth = 1;
+  cax.font = "11px -apple-system, sans-serif"; cax.textAlign = "right"; cax.textBaseline = "middle";
+  for (let v = 0; v <= y1 + 1e-9; v += ys) { const y = Math.round(Y(v)) + .5; cax.beginPath(); cax.moveTo(L, y); cax.lineTo(L + pw, y); cax.stroke(); cax.fillText(v.toFixed(0), L - 6, y); }
+  cax.textAlign = "center"; cax.textBaseline = "top";
+  for (let v = x0; v <= x1 + 1e-9; v += xs) cax.fillText(`${+v.toFixed(1)}°`, X(v), Tp + ph + 6);
+  const col = { f: css("--fwd"), r: css("--rev") };
+  for (const [x, y, s] of pts) { cax.fillStyle = col[s]; cax.fillRect(X(x) - 1, Y(Math.max(0, y)) - 1, 2, 2); }
+  if (currentPlot.stallMa && currentPlot.stallMa <= y1) {
+    cax.strokeStyle = css("--warn"); cax.setLineDash([5, 4]); cax.beginPath();
+    cax.moveTo(L, Y(currentPlot.stallMa)); cax.lineTo(L + pw, Y(currentPlot.stallMa)); cax.stroke(); cax.setLineDash([]);
+  }
+  if (!pts.length) { cax.fillStyle = css("--muted"); cax.textAlign = "center"; cax.textBaseline = "middle";
+    cax.fillText("no drive in the plot window", L + pw / 2, Tp + ph / 2); }
+}
+setInterval(drawCA, 300);
+
+// ---------- moves table ----------
+let lastMovesKey = "";
+function renderMoves(log) {
+  const key = JSON.stringify(log); if (key === lastMovesKey) return; lastMovesKey = key;
+  $("moves").innerHTML = `<tr><th>#</th><th>Move</th><th>Method</th><th class="num">Speed</th><th class="num">Target</th>
+    <th class="num">Stopped at</th><th class="num">Error</th><th class="num">Corr.</th><th class="num">Time</th>
+    <th class="num">Energy</th><th class="num">Peak</th></tr>` + (log.length ? log.slice().reverse().map(m => `
+    <tr><td>${m.n}</td><td>${m.label.replace(/[<>&]/g, "")}</td><td>${m.method}</td><td class="num">${Math.round(m.duty * 100)}%</td>
+    <td class="num">${m.target.toFixed(1)}°</td><td class="num">${m.final.toFixed(1)}°</td>
+    <td class="num">${m.error_deg >= 0 ? "+" : ""}${m.error_deg.toFixed(1)}°</td><td class="num">${m.corrections}</td>
+    <td class="num">${m.duration_s.toFixed(2)} s</td><td class="num">${m.energy_j.toFixed(3)} J</td><td class="num">${m.peak_ma} mA</td></tr>`).join("")
+    : `<tr><td colspan="11" class="note">No moves yet.</td></tr>`);
+}
+
 // first paint: settings come with the first status
 connect();
 </script>
