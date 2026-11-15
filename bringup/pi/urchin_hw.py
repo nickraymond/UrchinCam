@@ -180,6 +180,61 @@ class GpiozeroBackend:
         self.devs.clear()
 
 
+class LgpioBackend:
+    """Outputs claimed once through lgpio and never closed: a pin switches between plain on/off and software PWM in
+    place. Replaces GpiozeroBackend for the motor pins (11/15): swapping gpiozero devices mid-move sometimes left the
+    pin driving 0 mA. lgpio queues tx_pwm calls per GPIO and an endless (pulse_cycles=0) entry never finishes, so a
+    new duty could wait behind a stale one. Every change here stops PWM first and waits until it is idle."""
+
+    def __init__(self, chip=0):
+        import lgpio
+        self.lg = lgpio
+        self.h = lgpio.gpiochip_open(chip)
+        self.claimed, self.pwm_pins = set(), {}
+
+    def _claim(self, pin, level):
+        if pin not in self.claimed:
+            rc = self.lg.gpio_claim_output(self.h, pin, int(bool(level)))
+            if rc < 0:
+                raise OSError(f"lgpio could not claim GPIO{pin} ({rc})")
+            self.claimed.add(pin)
+
+    def _stop_pwm(self, pin, timeout_s=0.02):
+        if pin not in self.pwm_pins:
+            return
+        self.lg.tx_pwm(self.h, pin, 0, 0)
+        deadline = time.monotonic() + timeout_s
+        while self.lg.tx_busy(self.h, pin, self.lg.TX_PWM) == 1 and time.monotonic() < deadline:
+            time.sleep(0.0005)
+        del self.pwm_pins[pin]
+
+    def output(self, pin, level):
+        self._claim(pin, level)
+        self._stop_pwm(pin)
+        self.lg.gpio_write(self.h, pin, int(bool(level)))
+
+    def pwm(self, pin, duty, freq=PWM_HZ):
+        if duty >= 1.0 or duty <= 0.0:
+            return self.output(pin, duty >= 1.0)
+        self._claim(pin, 0)
+        if self.pwm_pins.get(pin) == (freq, duty):
+            return
+        self._stop_pwm(pin)
+        rc = self.lg.tx_pwm(self.h, pin, freq, round(duty * 100, 1))
+        if rc < 0:
+            raise OSError(f"lgpio tx_pwm GPIO{pin} failed ({rc})")
+        self.pwm_pins[pin] = (freq, duty)
+
+    def close(self):
+        for pin in list(self.pwm_pins):
+            self._stop_pwm(pin)
+        for pin in self.claimed:
+            self.lg.gpio_write(self.h, pin, 0)
+            self.lg.gpio_free(self.h, pin)  # the MP6550's pull-downs then hold IN1/IN2/nSLEEP low
+        self.claimed.clear()
+        self.lg.gpiochip_close(self.h)
+
+
 class PinctrlBackend:
     def __init__(self):
         self.pins = set()
@@ -197,7 +252,12 @@ class PinctrlBackend:
         self.pins.clear()
 
 
-def open_gpio():
+def open_gpio(prefer_lgpio=False):
+    if prefer_lgpio:
+        try:
+            return LgpioBackend()
+        except ImportError:
+            pass
     try:
         return GpiozeroBackend()
     except ImportError:

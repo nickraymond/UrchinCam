@@ -794,7 +794,7 @@ def main(argv=None):
     import urchin_hw as hw
 
     run_dir = wl.make_run_dir("jog_" + datetime.datetime.now().strftime("%H%M%S"))
-    gpio = hw.open_gpio()
+    gpio = hw.open_gpio(prefer_lgpio=True)  # gpiozero device swaps + LED PWM lost the motor PWM (cam02 11/15)
     motor = hw.Motor(gpio)
     dev = hw.I2CDevice(hw.ADS1115_ADDR)
     adc = hw.ADS1115(dev, fsr=args.fsr, rate=args.rate)

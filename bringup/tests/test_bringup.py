@@ -196,6 +196,82 @@ class TestSingleShotAfterContinuous(unittest.TestCase):
         self.assertAlmostEqual(hw.raw_to_volts(adc.read_raw(), 1.024), 0.0366, delta=0.0001)
 
 
+class FakeLgpio:
+    """lgpio as cam02's behaves for tx_pwm: calls queue per GPIO, an endless entry never ends, so only a stop
+    (frequency 0) clears the queue. `level(pin)` is what the pin drives now (duty for PWM)."""
+    TX_PWM = 0
+
+    def __init__(self):
+        self.claimed, self.written, self.queue = set(), {}, {}
+
+    def gpiochip_open(self, chip):
+        return 7
+
+    def gpio_claim_output(self, h, pin, level):
+        if pin in self.claimed:
+            return -1
+        self.claimed.add(pin)
+        self.written[pin] = level
+        return 0
+
+    def gpio_write(self, h, pin, level):
+        self.written[pin] = level
+        return 0
+
+    def tx_pwm(self, h, pin, freq, duty):
+        if freq == 0:
+            self.queue[pin] = []
+        else:
+            self.queue.setdefault(pin, []).append(duty)
+        return 0
+
+    def tx_busy(self, h, pin, kind):
+        return 1 if self.queue.get(pin) else 0
+
+    def gpio_free(self, h, pin):
+        self.claimed.discard(pin)
+
+    def gpiochip_close(self, h):
+        pass
+
+    def level(self, pin):
+        q = self.queue.get(pin)
+        return q[0] / 100 if q else self.written.get(pin)
+
+
+class TestLgpioBackend(unittest.TestCase):
+    def _backend(self):
+        b = hw.LgpioBackend.__new__(hw.LgpioBackend)
+        b.lg, b.h, b.claimed, b.pwm_pins = FakeLgpio(), 7, set(), {}
+        return b
+
+    def test_duty_changes_take_effect(self):
+        b = self._backend()
+        m = hw.Motor(b)
+        m.wake()
+        m.forward(1.0)
+        self.assertEqual(b.lg.level(hw.GPIO_IN1), 1)
+        for duty in (0.7, 0.6, 0.8, 0.75):  # repeated changes must not queue behind the first endless entry
+            m.forward(duty)
+            self.assertAlmostEqual(b.lg.level(hw.GPIO_IN1), duty)
+        m.brake()
+        self.assertEqual((b.lg.level(hw.GPIO_IN1), b.lg.level(hw.GPIO_IN2)), (1, 1))
+        m.reverse(0.6)
+        self.assertEqual(b.lg.level(hw.GPIO_IN1), 0)
+        self.assertAlmostEqual(b.lg.level(hw.GPIO_IN2), 0.6)
+        m.sleep()
+        self.assertEqual([b.lg.level(p) for p in (hw.GPIO_IN1, hw.GPIO_IN2, hw.GPIO_NSLEEP_HB)], [0, 0, 0])
+
+    def test_pins_claimed_once_and_freed(self):
+        b = self._backend()
+        m = hw.Motor(b)
+        for _ in range(5):
+            m.wake(); m.forward(0.5); m.brake(); m.sleep()
+        self.assertEqual(b.lg.claimed, {hw.GPIO_IN1, hw.GPIO_IN2, hw.GPIO_NSLEEP_HB})
+        b.close()
+        self.assertEqual(b.lg.claimed, set())
+
+
 class TestScale(unittest.TestCase):
     def test_visen_scale_2k(self):
         self.assertAlmostEqual(wa.visen_to_amps(0.2), 1.0)
