@@ -132,7 +132,9 @@ The heartbeat is global: any open page that is driving or moving keeps it alive.
 
 Limits of the no-motion stop (QE 019): it needs the pot (`--pot-every` > 0, the default) and a current of at least
 0.15 A; below 0.15 A, or with no pot, a jammed shaft is driven for the whole stroke time of a timed cycle (up to 30 s)
-and only the 0.5 A cut-off can stop it. The stall current at reduced duty is not measured (stage 9 not run).
+and only the 0.5 A cut-off can stop it. The stall current at reduced duty is not measured (stage 9 not run). Only
+trusted pot readings count as motion, so a healthy cycle turning slower than ~45 deg/s at 100 % is stopped as a stall
+when it crosses the pot's gap (open item 6).
 
 Getting back from the dead zone: a hold stops at once and a move is refused while the pot is untrusted. Put the
 motor to sleep (STOP), turn the shaft by hand back onto the track until the page shows a pot reading between 0.10 and
@@ -152,6 +154,8 @@ Pi's default pull, as seen at boot: the bridge coasts). So `jog-bench.service` h
 | First stroke after a restart misses 4-7 deg | learned brake lead starts untrained (QE 019) | leads saved to `motion_cal.json` and reloaded (not yet re-run on hardware) |
 | Stall under the cut-off could drive for minutes in cycle mode | no-motion stop existed only in moves (QE 019) | no-motion stop in every drive mode while drawing current |
 | Any page on the tailnet could drive the motor | POSTs took any Origin and content type (QE 019) | JSON only, allowed Host, same origin |
+| Floating wiper trusted as a turning shaft (29d446c) | the floating wiper drifts 20-30 mV one way on its own (jog_194426 t=908.8: 0.591, 0.598, 0.619 V; QE 019 N2) | the "moving path" re-trust ignores readings in 0.45-0.85 V (`pot.FLOAT_V`); replay of every recorded session: 0 float readings trusted (13 at 29d446c) |
+| Jam in the dead zone never stopped (29d446c) | the float changes > 5 mV on 189 of 217 reads, which restarted the no-motion timer (QE 019 N3) | only trusted pot changes count as motion. Limit: a cycle whose shaft turns slower than ~45 deg/s crosses the ~30 deg gap slower than the 0.72 s window (at 100 %) and stops as a stall (simulator: 44 deg/s stops, 49 completes) |
 
 ## cam02 is a bench now, not a camera
 
@@ -188,5 +192,8 @@ reproduce: QE 019 found 3 in that run's window in the later saved snapshot
    ~1.1 deg scatter is mechanical, and whether saved leads fix the first stroke.
 2. The idle pot read (between moves) sometimes stalls up to 56 ms; moves use the streamed path and aren't affected.
 3. The 21 deg pot jump above.
-4. Stall test (card stage 9) and Ethernet (stage 5) not run yet; motor part numbers and stall current unknown.
+4. Stall test (card stage 9) not run yet; motor part numbers and stall current unknown. Ethernet (stage 5) 5.1-5.6
+   passed 11/15 3:21 PM (test card); 5.7 soak not run.
+6. Slow cycles: at 50 % the seal turns the shaft only ~30 deg/s (char run above); the window at 50 % is 0.83 s, so
+   crossing the ~30 deg gap (~1 s) would likely stop a 50 % cycle as a stall (worked out, not simulated or run).
 5. Angle error has no external reference (a marked stop or a camera) yet.

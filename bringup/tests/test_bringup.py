@@ -76,16 +76,28 @@ class SimMotorADC:
 
     # A shaft pot on AIN2 that turns with the motor at pot_vps volts per second. Like cam02's (11/13, 11/15): the track
     # reads 0-3.35 V over ~330 deg; in the ~30 deg dead zone after it (360/98.3 = 3.662 V of travel per turn) the
-    # wiper first floats (~0.57 V, like an unused input), then sits on the 0 V end terminal.
-    pot_u, pot_vps, pot_last_t = 1.5, 0.5, None
+    # wiper first floats (~0.57 V, like an unused input), then sits on the 0 V end terminal. The float wanders read to
+    # read as recorded on cam02 (11/15 jog_194426: t=908.82-908.88 after leaving the track, then t=1040.96 driving
+    # reverse in the gap): it changes by more than 5 mV most reads and rises 28 mV one way at the start (QE 019, N2/N3).
+    pot_u, pot_vps, pot_last_t, float_i = 1.5, 0.5, None, 0
+    pot_jitter, jitter_i = (), 0  # volts added to on-track readings in turn (ADC noise on a still shaft)
     POT_TURN_V, POT_TRACK_V = 360 / 98.3, 3.35
+    FLOAT_SEQ = (0.59113, 0.59788, 0.61850, 0.59325, 0.57388, 0.54575, 0.58013, 0.55250, 0.56300, 0.57150, 0.57488,
+                 0.56712, 0.56463, 0.57400, 0.57450, 0.55825, 0.56575, 0.58213, 0.57437, 0.56450, 0.57163, 0.54487,
+                 0.58650, 0.56788, 0.57900)
 
     @property
     def pot_v(self):
         v = self.pot_u % self.POT_TURN_V
         if v <= self.POT_TRACK_V:
+            if self.pot_jitter:
+                self.jitter_i += 1
+                return v + self.pot_jitter[self.jitter_i % len(self.pot_jitter)]
             return v
-        return 0.57 if v < self.POT_TRACK_V + 0.2 else 0.0
+        if v >= self.POT_TRACK_V + 0.2:
+            return 0.0
+        self.float_i += 1  # each read of the floating wiper gets the next recorded value
+        return self.FLOAT_SEQ[self.float_i % len(self.FLOAT_SEQ)]
 
     cont_ch = 0
 
@@ -118,7 +130,8 @@ class SimMotorADC:
             return raw, hw.raw_to_volts(raw, self.fsr)
         if channel != 2:
             raise ValueError("sim has VISEN on AIN0 and the pot on AIN2")
-        return int(self.pot_v / fsr * 32768), self.pot_v
+        v = self.pot_v
+        return int(v / fsr * 32768), v
 
     def read_raw(self):
         self.clock.t += 0.0003  # an I2C read takes time
@@ -740,6 +753,23 @@ class TestJog(unittest.TestCase):
         self.assertTrue(p.ok)
         self.assertAlmostEqual(p.angle, (0.12 + 360 / 98.3 - 3.0) * 98.3, delta=0.1)
 
+    def test_floating_wiper_is_not_trusted_as_a_moving_path(self):
+        # QE 019, N2: cam02 11/15 jog_194426 t=908.79-908.84, then the float wandering as recorded at t=1040.96
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
+        pts = [(908.78971, 3.35237), (908.80242, 3.35175), (908.81248, 0.80338), (908.82357, 0.59113),
+               (908.83356, 0.59788), (908.84349, 0.61850), (908.85635, 0.59325), (908.86689, 0.57388)]
+        t = 908.86689
+        for v in (0.54575, 0.58013, 0.55250, 0.56300, 0.57150, 0.57488, 0.56712, 0.55, 0.57, 0.59, 0.62, 0.60):
+            t += 0.011
+            pts.append((t, v))
+        for t, v in pts[:2]:
+            p.update(v, t)
+        good = p.angle
+        for t, v in pts[2:]:
+            p.update(v, t)
+            self.assertFalse(p.ok, (t, v))
+            self.assertEqual(p.angle, good)
+
     def test_fast_hand_turn_mid_track_is_re_trusted(self):
         p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
         p.update(1.0, 0.0)
@@ -861,7 +891,9 @@ class TestJog(unittest.TestCase):
 
     def test_loaded_cycles_through_the_dead_zone_complete(self):
         # QE 019 N1: timed cycles at >= 0.15 A turning the shaft through the pot's dead zone must not stop as stalls
-        for vps in (0.35, 0.5, 1.0, 2.0, 3.3):  # ~34 to ~325 deg/s; at 34 the gap takes longer than the window
+        # ~49 to ~325 deg/s. Slower than ~45 deg/s at full speed the ~30 deg gap takes longer than the 0.72 s window
+        # and the cycle stops as a stall (QE 019, N3: the floating wiper no longer counts as motion)
+        for vps in (0.5, 1.0, 2.0, 3.3):
             for amps in (0.15, 0.40):
                 with self.subTest(vps=vps, amps=amps):
                     ctrl = self._mover(vps=vps)
@@ -872,6 +904,48 @@ class TestJog(unittest.TestCase):
                     self.assertIsNone(ctrl.cycle)
                     self.assertTrue(ctrl.cycle_result["complete"], [e["text"] for e in ctrl.events])
                     self.assertFalse(any("no motion" in e["text"] for e in ctrl.events))
+
+    def _jam_in_the_gap(self, amps=0.30):
+        ctrl = self._mover(vps=0.0)  # shaft held...
+        self.adc.run_a = amps
+        self.adc.pot_u = 3.30  # last trusted reading near the top end, as when the shaft turns into the gap
+        self._run_for(ctrl, 0.2)
+        self.adc.pot_u = 3.35 + 0.1  # ...then in the gap, where the wiper floats and wanders as recorded
+        self._run_for(ctrl, 0.2)
+        self.assertFalse(ctrl.pot.ok)
+        return ctrl
+
+    def test_jam_in_the_dead_zone_stops_a_cycle(self):
+        # QE 019, N3: at 29d446c the float's 5 mV wander kept restarting the timer and a jammed cycle drove 120 s
+        ctrl = self._jam_in_the_gap()
+        ctrl.request("cycle", 3.0, 5, 0.3)
+        t0 = self.clock.t
+        self._run_for(ctrl, 1.5)
+        stops = [e for e in ctrl.events if "no motion" in e["text"]]
+        self.assertTrue(stops, [e["text"] for e in ctrl.events])
+        self.assertIsNone(ctrl.cycle)
+        self.assertFalse(ctrl.cycle_result["complete"])
+        self.assertLess(stops[0]["t"] - t0, jog_server.NO_MOTION_S + jog_server.GAP_DEG / jog_server.FULL_SPEED_DPS
+                        + 0.1)
+
+    def test_jam_in_the_dead_zone_stops_a_hold(self):
+        ctrl = self._jam_in_the_gap()
+        ctrl.request("fwd")
+        self._run_for(ctrl, 0.3)
+        self.assertIn(ctrl.state, ("brake", "asleep"))
+
+    def test_no_motion_threshold_is_5_mv(self):
+        # pins RAW_MOVE_V: a still shaft with +-2 mV of noise stops; one creeping ~10 mV per window keeps going
+        ctrl = self._mover(vps=0.0)
+        self.adc.run_a, self.adc.pot_jitter = 0.30, (0.0, 0.002, -0.002, 0.001)
+        ctrl.request("cycle", 3.0, 1, 0.3)
+        self._run_for(ctrl, 1.5)
+        self.assertTrue(any("no motion" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
+        ctrl = self._mover(vps=0.015)  # ~1.5 deg/s: ~11 mV per 0.72 s window
+        self.adc.run_a, self.adc.pot_jitter = 0.30, ()
+        ctrl.request("cycle", 3.0, 1, 0.3)
+        self._run_for(ctrl, 7.0)
+        self.assertFalse(any("no motion" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
 
     def test_pot_trusted_again_while_turning_out_of_the_dead_zone(self):
         ctrl = self._mover(vps=3.3)

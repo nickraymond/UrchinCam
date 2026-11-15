@@ -81,8 +81,10 @@ STATUS_MAX_AGE_S = 0.04  # stream clients share one status built at most this of
 NO_MOTION_MIN_A = 0.15
 TRACK_END_DEG = 3.0  # manual holds stop this short of either end of the pot's safe track (dead zone beyond)...
 TRACK_END_S = 0.03  # ...or this many seconds of travel at the current speed, whichever is more
-RAW_MOVE_V = 0.005  # any change of the raw pot voltage this big counts as motion for the no-motion stop, trusted or
-# not (QE 019, N1): the reading jumps around in the dead zone while turning; a stalled shaft holds within ~1-2 mV
+RAW_MOVE_V = 0.005  # a change of a trusted pot reading this big counts as motion for the no-motion stop; a stalled
+# shaft holds within ~1-2 mV. Untrusted readings never count (QE 019, N3: the floating wiper changes by more than 5 mV
+# on 189 of 217 reads, cam02 11/15 jog_194426), so a jam in the dead zone stops; a turning shaft is trusted again once
+# out of the gap (pot.FLOAT_V), inside the window.
 MAX_BODY = 65536  # bytes accepted in a POST body
 MOTION_CAL_PATH = os.path.expanduser("~/NereusData/UrchinCam/motion_cal.json")  # learned brake leads, kept across restarts
 # Move methods. "simple": drive at the set speed, brake one learned lead before the target (lead_s).
@@ -461,7 +463,7 @@ class JogController:
             return
         if self.dp_raw is None:
             self.dp_raw, self.dp_t = self.pot_v, now
-        if fresh and self.pot_v is not None and abs(self.pot_v - self.dp_raw) >= RAW_MOVE_V:
+        if fresh and self.pot.ok and self.pot_v is not None and abs(self.pot_v - self.dp_raw) >= RAW_MOVE_V:
             self.dp_raw, self.dp_t = self.pot_v, now
         if not self.cycle:  # a hold (Drive or Jog page)
             if not self.pot.ok:

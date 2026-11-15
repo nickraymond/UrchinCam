@@ -14,7 +14,7 @@ track positions, so a reading that jumps further than the shaft can turn between
 (`ok` False) until three readings in a row agree again. Moves refuse targets outside SAFE_V.
 
 Away from the track ends, three readings that form a possible path (each step no faster than MAX_DPS) are also
-trusted again, so a move doesn't stop when the control loop stalls (cam02 11/15: a 51 ms gap, the shaft turned 14 deg
+trusted again (and anywhere outside FLOAT_V when they keep going one way), so a move doesn't stop when the control loop stalls (cam02 11/15: a 51 ms gap, the shaft turned 14 deg
 in it). Callers stamp readings with when the sample was taken (`t`), not when Python got to it.
 """
 
@@ -32,7 +32,10 @@ AGREE_V = 0.03  # readings agreeing within this, three in a row, are trusted aga
 END_V = 0.35  # ...but after leaving the track at one end, only near an end: the floating ~0.57 V is steady too
 TRACK_V = 3.35
 MOVE_V = 0.02  # ...or when three readings form a possible path that keeps going one way by at least this much:
-# the shaft coming out of the dead zone while still turning (QE 019, N1: a timed cycle never re-trusted at speed)
+# the shaft coming out of the dead zone while still turning (QE 019, N1: a timed cycle never re-trusted at speed)...
+FLOAT_V = (0.45, 0.85)  # ...outside the band the floating wiper wanders in: it drifts 20-30 mV one way on its own
+# (QE 019, N2: cam02 11/15 jog_194426 t=908.8, 0.591-0.619 V; recorded floats 0.54-0.80 V). The shaft leaves the gap
+# near 0 V or 3.35 V, so it is trusted before it reaches the band.
 
 
 def load_cal(path=CAL_PATH):
@@ -91,7 +94,8 @@ class PotAngle:
                 path = possible and not any(near_end(x) for x in last3)
                 steps = [last3[1] - last3[0], last3[2] - last3[1]] if len(last3) == 3 else []
                 moving = (possible and abs(last3[2] - last3[0]) >= MOVE_V
-                          and (all(d > 0 for d in steps) or all(d < 0 for d in steps)))
+                          and (all(d > 0 for d in steps) or all(d < 0 for d in steps))
+                          and not any(FLOAT_V[0] < x < FLOAT_V[1] for x in last3))
                 if ((agree and (near_end(v) or not near_end(self.last_v))) or (path and not near_end(self.last_v))
                         or moving):
                     self.suspect = []  # out of the dead zone, settled after a fast hand turn, or a stall: trust it
