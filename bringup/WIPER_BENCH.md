@@ -197,6 +197,9 @@ reproduce: QE 019 found 3 in that run's window in the later saved snapshot
 5. Slow cycles: at 50 % the seal turns the shaft only ~30 deg/s (char run above); the window at 50 % is 0.83 s, so
    a 50 % cycle through the ~30 deg gap stops as a stall (QE 019's checker, simulator; not run on cam02).
 6. Angle error has no external reference (a marked stop or a camera) yet.
+8. Short `go to` moves miss: from -1.28 deg, `go to 0` ended at +3.93 after 3 corrections (11/15 5:16 PM,
+   `2026-11-15_eth_soak_wipes_run2/meta.json`); the end-of-run `go to 0` from 4.5 deg ended at -1.27 after 3. A
+   correction from rest at 75 % overshoots a 1-4 deg target. Stage 10's start gate (3 deg) refused that run.
 7. The floating wiper (QE 019 N2, open): in the gap the wiper floats anywhere from 0.08 to 1.22 V (QE 019) and drifts
    slowly (t=1168, motor asleep: 0.55 V down to 0.08 V), overlapping real track voltages at both ends, so the software can't always tell it from the
    track; and a bench started with the arm in the gap trusts the float, so a jam there is stopped only by the cut-off.

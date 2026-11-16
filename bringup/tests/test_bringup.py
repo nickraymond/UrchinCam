@@ -1264,6 +1264,7 @@ class FakeBench:
 
     def __init__(self, sha="ad04f80", state="asleep", stop_angle=0.4, settings=None, n0=600, events_per_stroke=2):
         self.status = {"state": state, "move": None, "sha": sha, "angle": 12.0, "pot_v": 1.2, "throttled": "0x0",
+                       "lead_s": jog_server.LEAD_S, "leads": {},
                        "settings": settings or {"stall_amps": 0.5, "stall_ms": 250.0, "max_on_s": 10.0},
                        "events": []}
         self.moves = [{"n": i, "error_deg": 0.0, "energy_j": 0.7} for i in range(n0 - 499, n0 + 1)]  # 500 kept
@@ -1324,7 +1325,7 @@ class TestWipeRepeatRun(unittest.TestCase):
         b = FakeBench()
         s, d = self.go(b, zero="1.5")
         self.assertTrue(s["complete"])
-        self.assertTrue(s["conditions_ok"] and s["leads_empty_at_start"])
+        self.assertTrue(s["conditions_ok"] and s["untrained_at_start"])
         self.assertEqual((s["end_angle"], len(s["end_move"])), (0.4, 1))  # sent back to the start for the reading
         self.assertEqual((s["strokes"], s["strokes_expected"]), (30, 30))  # moves found by n past the 500-move log
         self.assertEqual(s["stops"], [])
@@ -1425,6 +1426,13 @@ class TestWipeRepeatRun(unittest.TestCase):
         s, d = self.go(b)
         self.assertEqual(s["stops"], [])
         self.assertTrue(s["complete"])
+
+    def test_a_trained_lead_is_not_untrained(self):
+        b = FakeBench()
+        b.status["lead_s"] = 0.055  # the simple method's lead, learned earlier; `leads` stays empty
+        s, _ = self.go(b)
+        self.assertFalse(s["untrained_at_start"])
+        self.assertEqual(wipe_repeat.UNTRAINED_LEAD_S, jog_server.LEAD_S)
 
     def test_other_run_conditions_are_flagged(self):
         s, _ = self.go(FakeBench(), "--pause-s", "0.5")

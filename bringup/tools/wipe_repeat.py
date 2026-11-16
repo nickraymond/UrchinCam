@@ -12,7 +12,7 @@ arm back there and asks for Nick's by-eye reading against the marked zero (blank
 Writes into --out: meta.json (deployed sha, motor, settings incl. the cut-off, pot calibration, learned leads, start
 move, time, host, the arguments), moves.json (one record per stroke), events.json (every bench event seen during the
 run, not just the last 20), samples.csv (t_s, amps, state, angle), loop.json (/api/loop after the run) and
-summary.json (the stage 10 numbers, `complete`, `stops`, `cutoff_ok`, `conditions_ok`, `leads_empty_at_start`,
+summary.json (the stage 10 numbers, `complete`, `stops`, `cutoff_ok`, `conditions_ok`, `untrained_at_start`,
 `throttled_before` / `_after`, `end_angle`, `zero_check_deg`). Ctrl-C at any point stops the motor and still writes
 what it has, marked "aborted". Standard library only.
 """
@@ -32,6 +32,7 @@ import urllib.request
 MAX_WIPES = 100  # the bench's own cap (jog_server.MAX_CYCLES); more is refused here, not cut silently
 START_TOL_DEG = 3.0  # the arm must stop this close to --start-deg before the wipes start
 CUTOFF = {"stall_amps": 0.5, "stall_ms": 250.0}  # stage 10 runs at the default cut-off; anything else doesn't count
+UNTRAINED_LEAD_S = 0.04  # jog_server.LEAD_S: the simple method's brake lead before anything is learned
 REGISTERED = {"sweep": 90.0, "duty": 1.0, "pause_s": 0.3, "start_deg": 0.0}  # the test card's run conditions
 
 
@@ -238,7 +239,9 @@ def run(a, b, out, sleep=time.sleep, clock=time.time, isatty=sys.stdin.isatty, a
         "cutoff_ok": all((meta["settings"] or {}).get(k) == v and settings_after.get(k) == v
                          for k, v in CUTOFF.items()),
         "conditions_ok": all(getattr(a, k) == v for k, v in REGISTERED.items()),
-        "leads_empty_at_start": not meta.get("leads"),
+        # the simple method brakes on lead_s; `leads` is only the approach method's (cam02 11/15 5:12 PM: leads {}
+        # while lead_s carried what earlier runs taught, so "leads empty" alone said nothing)
+        "untrained_at_start": meta.get("lead_s") == UNTRAINED_LEAD_S and not meta.get("leads"),
         "settings_after": settings_after,
         "throttled_before": meta["throttled_before"],
         "throttled_after": b.status.get("throttled"),

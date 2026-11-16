@@ -126,7 +126,7 @@ twisted pair, R+/R− as the other (RJ45 pins 1/2 and 3/6), to a switch with DHC
 | 5.4 | DHCP | an IPv4 address on the new interface within 30 s | PASS: an address on the LAN's /24 from DHCP (address in the log, not in this public repo) |
 | 5.5 | `ping -I <if>` the gateway, 100 pings | 0 % loss | PASS: 100 pings to the LAN gateway, 0 % loss |
 | 5.6 | Throughput, 30 s each way (`iperf3` if it's on both ends; installing it is Nick's call) | ≥ 80 Mb/s each way | PASS: Pi→Mac 90, Mac→Pi 94 Mb/s (iperf3 `-t 30`, `pi/eth_check.sh`; the Mac on Wi-Fi). iperf3 installed on cam02 by the builder on Nick's "Yes, install it" (builder chat, 11/15) |
-| 5.7 | Soak: 10 min ping while stages 6–7 run | 0 link drops (`eth_check.sh` logs carrier changes) | |
+| 5.7 | Soak: 10 min ping while stages 6–7 run | 0 link drops (`eth_check.sh` logs carrier changes) | PASS, **run differently from the card**: 11/15 5:12-5:22 PM, 600 / 600 pings to the gateway, 0 carrier changes, 0 rx / tx errors, while the jog bench wiped (3 runs of 60 wipes, 5:14-5:20 PM, about 5.5 of the 10 min driving) instead of the stage 6-7 scripts (the motor is on the brush, not free) (`~/NereusData/UrchinCam/2026-11-15_eth/soak_motor_wiping_eth_check_011242.txt`, `2026-11-15_eth_soak_wipes_run1`, `_run3`, `_run4`). A motor-off 30 min soak (3:38 PM) also had 1798 / 1798 and 0 drops (`quiet_soak_motor_off_233807.txt`) |
 
 If 5.1 fails: re-check 1.4–1.5 and the crystal (Y1, 25 MHz). If 5.3 fails: swap the pairs on J2.
 
@@ -221,7 +221,7 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
   is known to work on this motor.
 - **Order at the start:** (1) delete `~/NereusData/UrchinCam/motion_cal.json` on the Pi, (2) `sudo systemctl restart
   jog-bench`, (3) one **training run of 5 wipes** with the tool (`--out .._stage10_train`): recorded, not scored,
-  and its `summary.json` must show `leads_empty_at_start` true; the builder checks it and writes it in 10.3's Result
+  and its `summary.json` must show `untrained_at_start` true (`lead_s` at its start value, 0.04 s, and no `leads`); the builder checks it and writes it in 10.3's Result
   before run 1 (false: delete and restart again, then a new training run). It stands in for commissioning: a unit would carry
   its learned leads from then on. Runs 1-3 and the restart sets then use what the earlier runs taught. This is decided
   before the data: run 1's first stroke counts against 10.1 like any other.
