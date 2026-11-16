@@ -4,7 +4,9 @@ Pre-registered before any power-on. Status: **the card as a whole is not approve
 run 11/15); stage 8 was closed on existing data and stage 10 is proposed (approval names this file `@ <sha>`;
 board card `nick_wiper_bringup_ok`). Stages 2-4, 6 and 7 **ran anyway**, on Nick's go in the builder chat, not on
 an approved card (QE 019, 11/15, B2). Stage 5 (5.1-5.6) ran 11/15 3:21 PM on his stage 5 approval and his QE
-override (~3:02 PM: "I am over ridinging QE - work with me - run some test"), before QE's stage 5 spec PASS @ 29d446c.
+override (~3:02 PM: "I am over ridinging QE - work with me - run some test"), 4 min after QE's stage 5 spec PASS
+@ 29d446c (review submitted 3:17 PM; the check's log is named 23:21:12 UTC). Earlier link checks (no carrier) did
+run before it.
 His words, read in that chat:
 - 11/12: "lets jump to pi bring up first, i have "cam002" plugged in ... can you ssh it", then "I went rouge and just
   plugged the board ontop of the pi, it is rebooting. Please try to communicate with the ADC and the motor driver
@@ -30,7 +32,7 @@ of this card runs only once the card is approved at the sha on the board card; f
   the part number), the Zebra-Tech brush assembly with its real seal for stages 8–9. Motor supply = the board's +5V
   (there is no other motor rail on this board). Room temperature, dry.
 - **n:** stages 0–7 are pass/fail functional checks on n = 1 board (all we have; no design recommendation is made
-  from them). Stage 8: **10 wipes** per condition, reported as median and min–max. Stage 9: **3** short stalls.
+  from them). Stage 8: **10 wipes** per condition, reported as median and min–max (as registered; closed instead on a 30-wipe jog bench run, see stage 8). Stage 9: **3** short stalls.
 - **Stop rules (any one, immediately, power off):** smoke, smell, a part too hot to touch; the bench supply goes into
   current limit; a rail outside its bar; the Pi reboots or browns out; motor stalls longer than the cut-off. Record
   what happened and stop the card; don't retry until the cause is understood.
@@ -119,11 +121,11 @@ twisted pair, R+/R− as the other (RJ45 pins 1/2 and 3/6), to a switch with DHC
 | # | Step | Pass | Result |
 |---|---|---|---|
 | 5.1 | `lsusb` | a new device **0bda:8152** (Realtek; the ID the Linux `r8152` driver matches, kernel `drivers/net/usb/r8152.c`) | PASS 11/15 3:21 PM: 0bda:8152 on USB (`~/NereusData/UrchinCam/2026-11-15_eth/eth_check_232112.txt`) |
-| 5.2 | `dmesg`, driver of the new interface | bound to **r8152**, no errors | PASS: eth0 bound to r8152 |
-| 5.3 | Link | `operstate` up, speed **100** Mb/s, full duplex | PASS: link up 100 Mb/s full. Earlier checks up to 3:18 PM had no carrier; it came up after Nick re-pinned the GH connector to the Blue Robotics RJ45 adapter (its GH pinout differs from J2): J2.1→adapter 1 (TX+), J2.2→4 (TX−), J2.3→2 (RX+), J2.4→3 (RX−). Nick, builder chat 11/15: "I reworked the pins on the GH connector per your instructions and that fixed it." |
-| 5.4 | DHCP | an IPv4 address on the new interface within 30 s | PASS: 192.168.1.238/24 |
-| 5.5 | `ping -I <if>` the gateway, 100 pings | 0 % loss | PASS: 100 pings to 192.168.1.1, 0 % loss |
-| 5.6 | Throughput, 30 s each way (`iperf3` if it's on both ends; installing it is Nick's call) | ≥ 80 Mb/s each way | PASS: Pi→Mac 90, Mac→Pi 94 Mb/s (iperf3; the Mac on Wi-Fi) |
+| 5.2 | `dmesg`, driver of the new interface | bound to **r8152**, no errors | PASS: eth0 bound to r8152. dmesg also has "Invalid ether addr 00:00:00:00:00:00" then "Random ether addr …": the board has no stored MAC address (no EEPROM) and the driver made one up; whether it changes each boot is not checked |
+| 5.3 | Link | `operstate` up, speed **100** Mb/s, full duplex | PASS: link up 100 Mb/s full. Earlier checks up to 3:18 PM had no carrier (read live, not saved); it came up after Nick re-pinned the GH connector to the Blue Robotics RJ45 adapter (its GH pinout differs from J2): J2.1→adapter 1 (TX+), J2.2→4 (TX−), J2.3→2 (RX+), J2.4→3 (RX−). Nick, builder chat 11/15: "I reworked the pins on the GH connector per your instructions and that fixed it." |
+| 5.4 | DHCP | an IPv4 address on the new interface within 30 s | PASS: an address on the LAN's /24 from DHCP (address in the log, not in this public repo) |
+| 5.5 | `ping -I <if>` the gateway, 100 pings | 0 % loss | PASS: 100 pings to the LAN gateway, 0 % loss |
+| 5.6 | Throughput, 30 s each way (`iperf3` if it's on both ends; installing it is Nick's call) | ≥ 80 Mb/s each way | PASS: Pi→Mac 90, Mac→Pi 94 Mb/s (iperf3 `-t 30`, `pi/eth_check.sh`; the Mac on Wi-Fi). iperf3 installed on cam02 by the builder on Nick's "Yes, install it" (builder chat, 11/15) |
 | 5.7 | Soak: 10 min ping while stages 6–7 run | 0 link drops (`eth_check.sh` logs carrier changes) | |
 
 If 5.1 fails: re-check 1.4–1.5 and the crystal (Y1, 25 MHz). If 5.3 fails: swap the pairs on J2.
@@ -162,15 +164,15 @@ call this done now since we already have teh data?" The plan below (`wipe_logger
 never run: that cut-off is under the brush's running current and would stop every stroke (QE 019).
 
 Data: the 11/15 `1334` run, `~/NereusData/UrchinCam/2026-11-15_1334_compare/` (`moves.json` simple, `samples_simple.csv`),
-code 6254b8f: 30 wipes 0 -> +90 -> 0 deg, simple method, 100 %, 0.3 s rest, 1000:1 motor at 5 V, the Zebra-Tech
+code 6254b8f (recorded only in that folder's `SUMMARY.md`): 30 wipes 0 -> +90 -> 0 deg, simple method, 100 %, 0.3 s rest, 1000:1 motor at 5 V, the Zebra-Tech
 brush and seal stack on the plastic surface, hand-held rig, jog bench cut-off 0.5 A / 250 ms. One run (n = 1); the
-other 30-wipe runs are in [WIPER_BENCH.md](WIPER_BENCH.md). During moves the current is read every 8th sample, so a
-peak shorter than ~20 ms may be missed.
+other 30-wipe runs are in [WIPER_BENCH.md](WIPER_BENCH.md). During moves the current is read every 8th sample (median 17.7 ms apart, max 33.4 ms in
+this run, per QE 019's checker; not recomputed by the builder), so a shorter peak may be missed.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 8.1 | Energy per wipe (J) | all wipes complete; report median and min–max | DONE (after the fact): 30 / 30 wipes, 60 / 60 strokes, 0 corrections; **1.435 J** median, 1.358–1.532 J (motor only, 5 V assumed) |
-| 8.2 | Peak and mean current per stroke | no false stalls | DONE (after the fact): 0 cut-off stops in 60 strokes. Peak per stroke median 868 mA (571–1254); above 0.5 A for at most 0.039 s against the 0.25 s window. Mean while driving median 0.407 A (0.375–0.456) |
+| 8.1 | Energy per wipe (J) | all wipes complete; report median and min–max. **Bar changed after the data:** registered as "10 wipes, energy per wipe (J)" / "all 10 complete"; against it: 30 wipes, all complete | DONE (after the fact): 30 / 30 wipes, 60 / 60 strokes, 0 corrections; **1.435 J** median, 1.358–1.532 J (motor only, 5 V assumed) |
+| 8.2 | Peak and mean current per stroke | no false stalls. **Bar changed after the data:** registered as "peak < the stall cut-off (no false stalls)"; against it: NOT MET, all 60 peaks are over the 0.5 A cut-off level (the cut-off also needs 0.25 s, which none reached) | DONE (after the fact): 0 cut-off stops in 60 strokes, inferred from 60 / 60 strokes finishing (the folder has no events file). Peak per stroke median 868 mA (571–1254); above 0.5 A for at most 0.039 s against the 0.25 s window. Mean while driving median 0.407 A (0.375–0.456) |
 | 8.3 | Torque margin estimate = (I_stall − I_noload) / (I_peak − I_noload) | report; E2 asked for ≥ 2× (card `p_e2_drive`: "A gives ~2.2×") | waits on stage 9 (stall current) |
 | 8b | Optional: minimum +5V during a stroke, with the 10 k + 10 k divider on TP5 (see VISEN_SCALE.md) | ≥ 4.75 V | not run (no divider fitted) |
 
@@ -211,13 +213,16 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
   stopped; current cut-off **0.5 A / 250 ms** (the default; nobody changes it during the stage).
 - **Error of a stroke:** the pot angle 0.25 s after the brake (0.1 s brake + 0.15 s settle) minus the target, in pot
   degrees at the hand-calibrated scale **98.3 deg/V** (about +-10 %, `pot.DEFAULT_CAL`, cam02 11/13).
-- **One sha:** the stage runs on the sha QE gives spec PASS (this card's head). `wipe_repeat.py --expect-sha` refuses
-  any other; a run whose `meta.json` sha is another or "unknown" doesn't count.
+- **One sha:** the stage runs on one code sha: the one with QE **code** PASS, written on board card
+  `nick_wiper_bringup_ok` when the stage is approved. Commits that change only this card (a Result cell, the stage 9
+  rewrite) don't change it. `wipe_repeat.py --expect-sha` (7+ characters) refuses any other; a run whose `meta.json`
+  sha is another, shorter than 7 characters or "unknown" doesn't count.
 - **Before stage 10:** a rewritten stage 9 (stall at the brush load) has run and its cut-off tripped, so the cut-off
   is known to work on this motor.
 - **Order at the start:** (1) delete `~/NereusData/UrchinCam/motion_cal.json` on the Pi, (2) `sudo systemctl restart
   jog-bench`, (3) one **training run of 5 wipes** with the tool (`--out .._stage10_train`): recorded, not scored,
-  and its `meta.json` must show no learned leads (`leads` empty). It stands in for commissioning: a unit would carry
+  and its `summary.json` must show `leads_empty_at_start` true; the builder checks it and writes it in 10.3's Result
+  before run 1 (false: delete and restart again, then a new training run). It stands in for commissioning: a unit would carry
   its learned leads from then on. Runs 1-3 and the restart sets then use what the earlier runs taught. This is decided
   before the data: run 1's first stroke counts against 10.1 like any other.
 - **Start move:** after each restart the tool sends the arm to **0 deg** (`go to 0` at 100 %; the bench may then
@@ -225,10 +230,11 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
   start unless the arm stopped within **3 deg** of 0. No other move is allowed between a restart and stroke 1. The
   wipes are relative to where the arm stopped.
 - **Independent check (10.4):** before the training run, with the arm at 0 deg after its start move, Nick draws the
-  mark on the mount (a line on the arm against a line on the housing). After each of runs 1-3 and after the last
-  restart set, the arm is sent to 0 the same way and Nick reads the arm against the mark by eye with a printed
-  protractor scale; the tool asks for the reading at the end of the run (or `--zero-check-deg`) and writes it to
-  `summary.json` `zero_check_deg`.
+  mark on the mount (a line on the arm against a line on the housing). At the end of every run the tool sends the arm
+  back to 0 the same way (`go to 0`, recorded in `summary.json` `end_move` and `end_angle`, not scored), then asks
+  for Nick's reading of the arm against the mark, by eye with a printed protractor scale, and writes it to
+  `summary.json` `zero_check_deg`. It is scored after runs 1-3 and the last restart set; a missing reading (`null`)
+  there fails 10.4.
 - **Tool:** `bringup/tools/wipe_repeat.py --host <pi>:8765 --motor "<part #>" --expect-sha <sha> --wipes <n> --out
   <dir>`; its defaults are the run conditions above. It writes meta.json, moves.json, events.json (every bench event
   in the run), samples.csv, loop.json and summary.json. Restart `jog-bench` before each run.
@@ -243,8 +249,8 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
 | # | Step | Pass | Result |
 |---|---|---|---|
 | 10.1 | 3 runs x 30 wipes (60 strokes each), each after a restart | each run: at least 58 of 60 strokes within 3 deg (`summary.json` `within_bar`); no stroke over 5 deg (`over_worst` 0) | |
-| 10.2 | 10 restarts x 3 wipes: first stroke after each restart | `first_stroke_deg` within 3 deg in all 10 | |
-| 10.3 | Safety, every run | `summary.json`: `complete` true (`strokes` = `strokes_expected`), `stops` empty (no cut-off, no motion, heartbeat, pot, track end or cancelled move in `events.json`), `cutoff_ok` true (0.5 A / 250 ms before and after); `throttled_before` and `throttled_after` 0x0 | |
+| 10.2 | 10 restarts x 3 wipes: first stroke after each restart | `first_stroke_deg` within +-3 deg in all 10 | |
+| 10.3 | Safety and conditions, every run: the training run, runs 1-3 and each of the 10 restart sets | `summary.json`: `complete` true (`strokes` = `strokes_expected`, no `fault`); `stops` empty: any entry fails the run (cut-off, no motion, heartbeat, pot, track end, cancelled move, and the I2C or PWM re-create messages the tool also counts); `cutoff_ok` true (0.5 A / 250 ms before and after); `conditions_ok` true (sweep 90, 100 %, 0.3 s, start 0); `throttled_before` and `throttled_after` 0x0. A run that ends with no `summary.json` (e.g. the tool exits when the link drops) is a failed run, not a rerun | |
 | 10.4 | Independent zero check after runs 1-3 and the last restart set | `zero_check_deg` within +-3 deg | |
 | 10.5 | Energy per wipe | record median and min-max per run (no bar) | |
 | 10.6 | Control-loop pauses, `loop.json` per run | record (no bar) | |

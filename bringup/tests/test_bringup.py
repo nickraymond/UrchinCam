@@ -1255,7 +1255,7 @@ class TestWipeRepeat(unittest.TestCase):
     def test_refuses_to_overwrite_a_run(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(SystemExit) as cm:
-                wipe_repeat.main(["--host", "127.0.0.1:1", "--motor", "m", "--expect-sha", "x", "--out", d])
+                wipe_repeat.main(["--host", "127.0.0.1:1", "--motor", "m", "--expect-sha", "ad04f80", "--out", d])
             self.assertIn("exists", str(cm.exception.code))
 
 
@@ -1317,19 +1317,21 @@ class TestWipeRepeatRun(unittest.TestCase):
         a = wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "ad04f80", "--wipes", "15",
                                     "--out", d, *extra])
         s = wipe_repeat.run(a, bench, d, sleep=lambda s: None, clock=kw.get("clock", time.monotonic),
-                            isatty=lambda: False)
+                            isatty=lambda: "zero" in kw, ask=lambda prompt: kw.get("zero", ""))
         return s, d
 
     def test_a_full_run(self):
         b = FakeBench()
-        s, d = self.go(b, "--zero-check-deg", "1.5")
+        s, d = self.go(b, zero="1.5")
         self.assertTrue(s["complete"])
+        self.assertTrue(s["conditions_ok"] and s["leads_empty_at_start"])
+        self.assertEqual((s["end_angle"], len(s["end_move"])), (0.4, 1))  # sent back to the start for the reading
         self.assertEqual((s["strokes"], s["strokes_expected"]), (30, 30))  # moves found by n past the 500-move log
         self.assertEqual(s["stops"], [])
         self.assertTrue(s["cutoff_ok"])
         self.assertEqual(s["zero_check_deg"], 1.5)
         with open(os.path.join(d, "events.json")) as f:
-            self.assertEqual(len(json.load(f)), 2 * 31)  # every event, not the server's last 20
+            self.assertEqual(len(json.load(f)), 2 * 32)  # every event, not the server's last 20
         with open(os.path.join(d, "meta.json")) as f:
             meta = json.load(f)
         self.assertEqual((meta["sha"], meta["start_angle"], len(meta["start_move"])), ("ad04f80", 0.4, 1))
@@ -1341,7 +1343,7 @@ class TestWipeRepeatRun(unittest.TestCase):
         self.assertIn("isn't idle", str(cm.exception.code))
 
     def test_refuses_another_sha(self):
-        for sha in ("29d446c", "unknown"):
+        for sha in ("29d446c", "unknown", "ad04", ""):
             with self.subTest(sha=sha):
                 with self.assertRaises(SystemExit) as cm:
                     self.go(FakeBench(sha=sha))
@@ -1403,10 +1405,47 @@ class TestWipeRepeatRun(unittest.TestCase):
         s, _ = self.go(FakeBench(settings={"stall_amps": 0.8, "stall_ms": 250.0}))
         self.assertFalse(s["cutoff_ok"])
 
+    def test_ctrl_c_in_the_start_move_stops_the_motor(self):
+        b = FakeBench()
+
+        def post(path, body=None, post=b.post):
+            if path == "/hb":
+                raise KeyboardInterrupt
+            return post(path, body)
+        b.post = post
+        s, d = self.go(b)
+        self.assertTrue(s["aborted"])
+        self.assertIn(("/cmd", {"action": "stop"}), b.posts)
+        self.assertFalse(any(body and body.get("kind") == "wipe" for _, body in b.posts))
+        self.assertTrue(os.path.exists(os.path.join(d, "meta.json")))
+
+    def test_events_from_before_the_run_are_not_its_stops(self):
+        b = FakeBench()
+        b._event("moves stopped (stop pressed); 3 not finished")  # left in the bench's last 20 from earlier
+        s, d = self.go(b)
+        self.assertEqual(s["stops"], [])
+        self.assertTrue(s["complete"])
+
+    def test_other_run_conditions_are_flagged(self):
+        s, _ = self.go(FakeBench(), "--pause-s", "0.5")
+        self.assertFalse(s["conditions_ok"])
+
+    def test_a_bench_fault_is_not_complete(self):
+        b = FakeBench()
+        b.status["fault"] = "controller stopped: RuntimeError('I2C bus gone')"
+        s, _ = self.go(b)
+        self.assertFalse(s["complete"])
+
+    def test_no_zero_reading_is_recorded_as_none(self):
+        s, _ = self.go(FakeBench())
+        self.assertIsNone(s["zero_check_deg"])
+
     def test_wipes_over_the_bench_cap_are_refused(self):
         with self.assertRaises(SystemExit):
-            wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "x", "--wipes", "101",
+            wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "ad04f80", "--wipes", "101",
                                     "--out", "o"])
+        with self.assertRaises(SystemExit):  # a short sha would match too much
+            wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "a", "--out", "o"])
 
 
 class TestScriptBounds(unittest.TestCase):

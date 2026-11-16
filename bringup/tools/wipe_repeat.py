@@ -6,13 +6,15 @@ the tailnet (or through the SSH tunnel). Restart `jog-bench` on the Pi before ea
         --wipes 30 --sweep 90 --out ~/NereusData/UrchinCam/<YYYY-MM-DD>_stage10_run1
 
 Before the wipes it sends the arm to --start-deg (`go to`, which may correct up to 3 times at <= 75 %) and refuses to
-run unless it stopped within START_TOL_DEG of it; the wipes are relative to where it stopped.
+run unless it stopped within START_TOL_DEG of it; the wipes are relative to where it stopped. After them it sends the
+arm back there and asks for Nick's by-eye reading against the marked zero (blank or no terminal: not read).
 
 Writes into --out: meta.json (deployed sha, motor, settings incl. the cut-off, pot calibration, learned leads, start
 move, time, host, the arguments), moves.json (one record per stroke), events.json (every bench event seen during the
 run, not just the last 20), samples.csv (t_s, amps, state, angle), loop.json (/api/loop after the run) and
-summary.json (the stage 10 numbers, `complete`, `stops`, `cutoff_ok`, `zero_check_deg`). Ctrl-C stops the motor and
-still writes what it has, marked "aborted". Standard library only.
+summary.json (the stage 10 numbers, `complete`, `stops`, `cutoff_ok`, `conditions_ok`, `leads_empty_at_start`,
+`throttled_before` / `_after`, `end_angle`, `zero_check_deg`). Ctrl-C at any point stops the motor and still writes
+what it has, marked "aborted". Standard library only.
 """
 
 import argparse
@@ -30,6 +32,7 @@ import urllib.request
 MAX_WIPES = 100  # the bench's own cap (jog_server.MAX_CYCLES); more is refused here, not cut silently
 START_TOL_DEG = 3.0  # the arm must stop this close to --start-deg before the wipes start
 CUTOFF = {"stall_amps": 0.5, "stall_ms": 250.0}  # stage 10 runs at the default cut-off; anything else doesn't count
+REGISTERED = {"sweep": 90.0, "duty": 1.0, "pause_s": 0.3, "start_deg": 0.0}  # the test card's run conditions
 
 
 def summarize(moves, bar_deg=3.0, worst_deg=5.0):
@@ -124,31 +127,43 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--host", required=True, help="host:port of the jog bench")
     p.add_argument("--motor", required=True, help="motor part number, recorded in meta.json")
-    p.add_argument("--expect-sha", required=True, help="the spec-PASS sha; refuses if the bench runs anything else")
+    p.add_argument("--expect-sha", required=True,
+                   help="the code sha with QE code PASS (7+ characters); refuses if the bench runs anything else")
     p.add_argument("--wipes", type=int, default=30)
-    p.add_argument("--sweep", type=float, default=90.0)
-    p.add_argument("--duty", type=float, default=1.0)
-    p.add_argument("--pause-s", type=float, default=0.3)
-    p.add_argument("--start-deg", type=float, default=0.0, help="go here before the wipes (pot degrees)")
-    p.add_argument("--zero-check-deg", type=float, default=None,
-                   help="Nick's by-eye reading of the arm against the marked zero after the run (else asked)")
+    p.add_argument("--sweep", type=float, default=REGISTERED["sweep"])
+    p.add_argument("--duty", type=float, default=REGISTERED["duty"])
+    p.add_argument("--pause-s", type=float, default=REGISTERED["pause_s"])
+    p.add_argument("--start-deg", type=float, default=REGISTERED["start_deg"],
+                   help="go here before the wipes, and back here after them (pot degrees)")
     p.add_argument("--out", required=True)
     a = p.parse_args(argv)
     if not 1 <= a.wipes <= MAX_WIPES:
         p.error(f"--wipes must be 1-{MAX_WIPES} (the bench caps cycles at {MAX_WIPES})")
+    if len(a.expect_sha) < 7:
+        p.error("--expect-sha needs at least 7 characters")
     return a
 
 
-def ask_zero(a, isatty=sys.stdin.isatty, ask=input):
-    if a.zero_check_deg is not None:
-        return a.zero_check_deg
+def ask_zero(isatty=sys.stdin.isatty, ask=input):
+    """Nick's by-eye reading of the arm against the marked zero, taken after the arm went back to the start."""
     if not isatty():
         return None
-    s = ask("Arm against the marked zero, by eye (deg; blank = not read): ").strip()
+    s = ask("Arm is back at the start. Read it against the marked zero, by eye (deg; blank = not read): ").strip()
     try:
         return float(s) if s else None
     except ValueError:
         return None
+
+
+def goto(b, deg, duty, sleep, clock):
+    """Send the arm to `deg` and wait for it; on a refusal or timeout stop the motor and exit."""
+    r = b.post("/move", {"kind": "goto", "value": deg, "duty": duty, "method": "simple"})
+    if r.get("error"):
+        sys.exit(f"go to {deg:g} refused: {r['error']}")
+    sleep(0.3)
+    if not wait_idle(b, 30, sleep, clock):
+        b.post("/cmd", {"action": "stop"})
+        sys.exit(f"go to {deg:g} didn't finish in 30 s; stopped")
 
 
 def run(a, b, out, sleep=time.sleep, clock=time.time, isatty=sys.stdin.isatty, ask=input):
@@ -157,31 +172,26 @@ def run(a, b, out, sleep=time.sleep, clock=time.time, isatty=sys.stdin.isatty, a
     if not idle(st):
         sys.exit("the bench isn't idle")
     sha = str(st.get("sha"))
-    if sha == "unknown" or not (sha.startswith(a.expect_sha) or a.expect_sha.startswith(sha)):
+    if len(sha) < 7 or not (sha.startswith(a.expect_sha) or a.expect_sha.startswith(sha)):
         sys.exit(f"the bench runs {sha}, not {a.expect_sha}: a stage 10 run on another sha doesn't count")
     meta = {"started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "host": a.host,
             "args": vars(a), "sha": sha, "motor": a.motor, "settings": st.get("settings"),
             "pot_cal": st.get("pot_cal"), "lead_s": st.get("lead_s"), "leads": st.get("leads"),
             "throttled_before": st.get("throttled")}
     n_before = max([m.get("n", 0) for m in b.get("/api/moves")], default=0)
+    k_before = len(b.events)  # events already in the bench's last 20 belong to before this run
 
-    r = b.post("/move", {"kind": "goto", "value": a.start_deg, "duty": a.duty, "method": "simple"})
-    if r.get("error"):
-        sys.exit(f"start move refused: {r['error']}")
-    sleep(0.3)
-    if not wait_idle(b, 30, sleep, clock):
-        b.post("/cmd", {"action": "stop"})
-        sys.exit("the start move didn't finish in 30 s; stopped")
-    meta["start_angle"], meta["start_pot_v"] = b.status.get("angle"), b.status.get("pot_v")
-    meta["start_move"] = [m for m in b.get("/api/moves") if m.get("n", 0) > n_before]
-    with open(os.path.join(out, "meta.json"), "w") as f:
-        json.dump(meta, f, indent=1)
-    if meta["start_angle"] is None or abs(meta["start_angle"] - a.start_deg) > START_TOL_DEG:
-        sys.exit(f"the arm stopped at {meta['start_angle']}, not within {START_TOL_DEG} deg of {a.start_deg}")
-    n_start = max([m.get("n", 0) for m in b.get("/api/moves")], default=0)
-
-    aborted = False
+    aborted, moves, end, n_start = False, [], {}, None
     try:
+        goto(b, a.start_deg, a.duty, sleep, clock)
+        meta["start_angle"], meta["start_pot_v"] = b.status.get("angle"), b.status.get("pot_v")
+        meta["start_move"] = [m for m in b.get("/api/moves") if m.get("n", 0) > n_before]
+        with open(os.path.join(out, "meta.json"), "w") as f:
+            json.dump(meta, f, indent=1)
+        if meta["start_angle"] is None or abs(meta["start_angle"] - a.start_deg) > START_TOL_DEG:
+            sys.exit(f"the arm stopped at {meta['start_angle']}, not within {START_TOL_DEG} deg of {a.start_deg}")
+        n_start = max([m.get("n", 0) for m in b.get("/api/moves")], default=0)
+
         r = b.post("/move", {"kind": "wipe", "value": a.sweep, "cycles": a.wipes, "pause_s": a.pause_s,
                              "duty": a.duty, "method": "simple"})
         if r.get("error"):
@@ -189,17 +199,27 @@ def run(a, b, out, sleep=time.sleep, clock=time.time, isatty=sys.stdin.isatty, a
         sleep(0.3)
         wait_idle(b, 20 + a.wipes * 6, sleep, clock)
         sleep(0.5)
+        moves = [m for m in b.get("/api/moves") if m.get("n", 0) > n_start]
+        n_end = max([m.get("n", 0) for m in b.get("/api/moves")], default=0)
+        goto(b, a.start_deg, a.duty, sleep, clock)  # back to the start for the zero check (not scored)
+        end = {"angle": b.status.get("angle"), "pot_v": b.status.get("pot_v"),
+               "move": [m for m in b.get("/api/moves") if m.get("n", 0) > n_end]}
     except KeyboardInterrupt:
         aborted = True
         b.post("/cmd", {"action": "stop"})
         sleep(0.5)
+        if not moves and n_start is not None:
+            moves = [m for m in b.get("/api/moves") if m.get("n", 0) > n_start]
+        if not os.path.exists(os.path.join(out, "meta.json")):
+            with open(os.path.join(out, "meta.json"), "w") as f:
+                json.dump(meta, f, indent=1)
     b.stop.set()
 
-    moves = [m for m in b.get("/api/moves") if m.get("n", 0) > n_start]
+    events = b.events[k_before:]
     with open(os.path.join(out, "moves.json"), "w") as f:
         json.dump(moves, f, indent=1)
     with open(os.path.join(out, "events.json"), "w") as f:
-        json.dump(b.events, f, indent=1)
+        json.dump(events, f, indent=1)
     with open(os.path.join(out, "samples.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["t_s", "amps", "state", "angle"])
@@ -208,17 +228,24 @@ def run(a, b, out, sleep=time.sleep, clock=time.time, isatty=sys.stdin.isatty, a
         json.dump(b.get("/api/loop"), f, indent=1)
     summary = summarize(moves)
     settings_after = b.status.get("settings") or {}
+    fault = b.status.get("fault")
     summary.update({
         "aborted": aborted,
         "strokes_expected": 2 * a.wipes,
-        "complete": not aborted and len(moves) == 2 * a.wipes,
-        "stops": [e["text"] for e in stops(b.events)],
+        "complete": not aborted and not fault and len(moves) == 2 * a.wipes,
+        "fault": fault,
+        "stops": [e["text"] for e in stops(events)],
         "cutoff_ok": all((meta["settings"] or {}).get(k) == v and settings_after.get(k) == v
                          for k, v in CUTOFF.items()),
+        "conditions_ok": all(getattr(a, k) == v for k, v in REGISTERED.items()),
+        "leads_empty_at_start": not meta.get("leads"),
         "settings_after": settings_after,
+        "throttled_before": meta["throttled_before"],
         "throttled_after": b.status.get("throttled"),
+        "end_angle": end.get("angle"),
+        "end_move": end.get("move"),
     })
-    summary["zero_check_deg"] = None if aborted else ask_zero(a, isatty, ask)
+    summary["zero_check_deg"] = None if aborted else ask_zero(isatty, ask)
     with open(os.path.join(out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
     return summary

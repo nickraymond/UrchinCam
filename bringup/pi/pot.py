@@ -34,7 +34,9 @@ TRACK_V = 3.35
 MOVE_V = 0.02  # ...or when three readings form a possible path that keeps going one way by at least this much:
 # the shaft coming out of the dead zone while still turning (QE 019, N1: a timed cycle never re-trusted at speed)...
 FLOAT_V = (0.45, 0.85)  # ...outside the band the floating wiper wanders in: it drifts 20-30 mV one way on its own
-# (QE 019, N2: cam02 11/15 jog_194426 t=908.8, 0.591-0.619 V; recorded floats 0.54-0.80 V). The shaft leaves the gap
+# (QE 019, N2: cam02 11/15 jog_194426 t=908.8, 0.591-0.619 V). NOT a full fix: recorded floats reach 0.08-1.22 V
+# (jog_194426 t=1168.2: 0.19 V trusted for 30 readings, motor asleep; QE 019 @ 8b86874), so the float is still
+# trusted outside this band. The shaft leaves the gap
 # near 0 V or 3.35 V, so it is trusted before it reaches the band.
 
 
