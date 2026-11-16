@@ -126,6 +126,11 @@ ul.events li:first-child { border-top: 0; }
       <button id="b-home">Go to 0°</button>
       <span class="movebar" id="movebar"></span>
     </div>
+    <div class="row" style="margin-top:10px">
+      <span class="pill" id="pot-pill">pot —</span>
+      <button id="b-confirm" hidden>The arm is on the track</button>
+      <span class="note" id="pot-next"></span>
+    </div>
   </section>
 
   <section class="panel">
@@ -335,6 +340,7 @@ $("b-plus").addEventListener("click", () => step(+1));
 $("b-minus").addEventListener("click", () => step(-1));
 $("b-stop").addEventListener("pointerdown", e => { e.preventDefault(); stopAll(); });
 $("b-zero").addEventListener("click", () => post("/pot/zero").catch(e => { $("err").textContent = e.message; }));
+$("b-confirm").addEventListener("click", () => cmd("/pot/confirm"));
 $("b-home").addEventListener("click", () => cmd("/move", { kind: "goto", value: 0, duty: duty(), method: method() }));
 $("b-wipe").addEventListener("click", () => cmd("/move", { kind: "wipe", value: +$("w-sweep").value,
   cycles: +$("w-cycles").value, pause_s: +$("w-pause").value, duty: duty(), method: method() }));
@@ -392,6 +398,15 @@ function connect() {
     anglePlot.dirty = currentPlot.dirty = true;
   };
 }
+const POT_NAME = { trusted: "pot trusted", suspect: "pot suspect", latched: "pot latched" };
+function potState(st) {  // PE 018 ruling 1: which state the pot is in and what to do next
+  const s = st.pot_state;
+  $("pot-pill").textContent = s ? POT_NAME[s] || s : "no pot";
+  $("pot-pill").className = "pill " + (s === "trusted" ? "ok" : s ? "bad" : "");
+  $("pot-next").textContent = s && s !== "trusted" ? (st.pot_why ? st.pot_why + ". " : "") + st.pot_next : "";
+  $("b-confirm").hidden = s !== "latched" && s !== "suspect";
+  $("b-confirm").disabled = st.state !== "asleep" || !!st.move;
+}
 function render() {
   const st = status;
   if (st.fault || st.tick_age_s > 1) {
@@ -404,8 +419,9 @@ function render() {
   if (st.angle == null) { $("ang").textContent = "—"; $("ang-total").textContent = "no pot reading"; }
   else {
     $("ang").textContent = (((st.angle % 360) + 360) % 360).toFixed(1);
-    $("ang-total").textContent = `total turned since zero: ${st.angle.toFixed(1)}° · pot ${st.pot_v == null ? "—" : st.pot_v.toFixed(3)} V`;
+    $("ang-total").textContent = `angle since zero: ${st.angle.toFixed(1)}° · pot ${st.pot_v == null ? "—" : st.pot_v.toFixed(3)} V`;
   }
+  potState(st);
   let j = G.length - 1; while (j >= 0 && G[j] == null) j--;
   let i = j; while (i > 0 && (G[i - 1] == null || T[j] - T[i - 1] <= 0.2)) i--;
   while (i < j && G[i] == null) i++;

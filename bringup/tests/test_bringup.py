@@ -514,7 +514,7 @@ class TestArgs(unittest.TestCase):
 
 
 class TestJog(unittest.TestCase):
-    def _ctrl(self, pot_every=0, **settings):
+    def _ctrl(self, pot_every=0, confirm=True, **settings):
         clock, gpio = FakeClock(), FakeGpio()
         motor = hw.Motor(gpio)
         adc = SimMotorADC(gpio, clock, fsr=1.024, stall_a=0.80)
@@ -525,7 +525,17 @@ class TestJog(unittest.TestCase):
         ctrl = jog_server.JogController(motor, sampler, clock=clock, show=shown.append, pot=p, pot_every=pot_every)
         ctrl.set_settings(settings)
         self.clock, self.gpio, self.adc, self.shown = clock, gpio, adc, shown
+        if p and confirm:  # every start is latched (PE 018 ruling 2): the operator confirms the arm is on the track
+            self._run_for(ctrl, 0.4)
+            ctrl.confirm_pot()
         return ctrl
+
+    def _place(self, ctrl, u):
+        """Put the sim shaft at pot volts `u` by hand (a teleport the pot can't prove), then confirm it there."""
+        self.adc.pot_u = u
+        self._run_for(ctrl, 0.4)
+        ctrl.confirm_pot()
+        self.assertTrue(ctrl.pot.ok)
 
     def _run_for(self, ctrl, seconds, hb=True):
         end = self.clock.t + seconds
@@ -681,8 +691,7 @@ class TestJog(unittest.TestCase):
 
     def test_wipe_by_angle(self):
         ctrl = self._mover()
-        self.adc.pot_u = 1.0  # 180 deg up from here stays on the track
-        self._run_for(ctrl, 0.1)
+        self._place(ctrl, 1.0)  # 180 deg up from here stays on the track
         a0 = ctrl.angle
         ctrl.request_move("wipe", 180, duty=1.0, cycles=3, pause_s=0.2)
         self.assertEqual(ctrl.status()["move"]["total"], 6)
@@ -697,8 +706,7 @@ class TestJog(unittest.TestCase):
 
     def test_moves_into_the_dead_zone_are_refused(self):
         ctrl = self._mover()
-        self.adc.pot_u = 2.58  # where Nick had zeroed on 11/15: ~66 deg below the top of SAFE_V
-        self._run_for(ctrl, 0.2)
+        self._place(ctrl, 2.58)  # where Nick had zeroed on 11/15: ~66 deg below the top of SAFE_V
         room = ctrl.status()["room"]
         self.assertAlmostEqual(room["plus"], (3.25 - 2.58) * 98.3, delta=1)
         with self.assertRaises(ValueError) as cm:
@@ -708,77 +716,22 @@ class TestJog(unittest.TestCase):
         self._run_for(ctrl, 3.0)
         self.assertTrue(ctrl.pot.ok)
 
-    def test_dead_zone_readings_are_not_trusted(self):
-        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=3.0))
-        t = 0.0
-        for v in (3.20, 3.27, 3.33):  # shaft turning up at ~70 deg/s, read every 0.1 s
-            t += 0.1
-            a = p.update(v, t)
-        good = a
-        for v in (0.749, 0.575, 0.649, 0.57, 0.57, 0.57, 0.57):  # floats in the dead zone, then sits still
-            t += 0.01
-            self.assertEqual(p.update(v, t), good)
-            self.assertFalse(p.ok)
-        t += 1.0  # a long rest must not make 0.57 V "plausible"
-        self.assertEqual(p.update(0.57, t), good)
-        self.assertFalse(p.ok)
-        for v in (0.0, 0.0, 0.0):  # comes out on the 0 V end of the track: trusted again, counted past the gap
-            t += 0.01
-            a = p.update(v, t)
-        self.assertTrue(p.ok)
-        self.assertAlmostEqual(a, (360 / 98.3 - 3.0) * 98.3, delta=0.1)
-
-    def test_loop_stall_mid_move_is_re_trusted(self):
-        # cam02 11/15: readings 6 ms apart, then a 51 ms stall while the shaft kept turning at ~280 deg/s
-        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=0.774))
-        pts = [(8.20062, 1.38688), (8.20671, 1.40600), (8.21270, 1.42063), (8.21280, 1.5655),  # mis-stamped
-               (8.2165, 1.5755), (8.2203, 1.5860)]
-        for t, v in pts:
-            p.update(v, t)
-        self.assertTrue(p.ok)  # a possible path after the jump: trusted again without stopping
-        self.assertAlmostEqual(p.angle, (1.5860 - 0.774) * 98.3, delta=0.1)
-
-    def test_trusted_again_on_a_moving_path_out_of_the_dead_zone(self):
-        # no flat 0 V stretch: the shaft comes out of the gap still turning, readings ~15 ms apart (QE 019, N1)
-        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=3.0))
-        t = 0.0
-        for v in (3.20, 3.27, 3.33):
-            t += 0.015
-            p.update(v, t)
-        for v in (0.749, 0.575, 0.649):  # floating in the gap
-            t += 0.015
-            p.update(v, t)
-            self.assertFalse(p.ok)
-        for v in (0.02, 0.07, 0.12):  # back on the track, rising ~5 deg per reading
-            t += 0.015
-            p.update(v, t)
-        self.assertTrue(p.ok)
-        self.assertAlmostEqual(p.angle, (0.12 + 360 / 98.3 - 3.0) * 98.3, delta=0.1)
-
     def test_floating_wiper_is_not_trusted_as_a_moving_path(self):
         # QE 019, N2: cam02 11/15 jog_194426 t=908.79-908.84, then the float wandering as recorded at t=1040.96
-        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
+        # the run-up at 3.352 V is past SAFE_V, so it is never trusted now: start trusted below it instead (a lead-in)
+        p = trusted_pot(3.20, 908.40, zero_v=1.0)
         pts = [(908.78971, 3.35237), (908.80242, 3.35175), (908.81248, 0.80338), (908.82357, 0.59113),
                (908.83356, 0.59788), (908.84349, 0.61850), (908.85635, 0.59325), (908.86689, 0.57388)]
         t = 908.86689
         for v in (0.54575, 0.58013, 0.55250, 0.56300, 0.57150, 0.57488, 0.56712, 0.55, 0.57, 0.59, 0.62, 0.60):
             t += 0.011
             pts.append((t, v))
-        for t, v in pts[:2]:
-            p.update(v, t)
         good = p.angle
-        for t, v in pts[2:]:
+        for t, v in pts:
             p.update(v, t)
             self.assertFalse(p.ok, (t, v))
             self.assertEqual(p.angle, good)
-
-    def test_fast_hand_turn_mid_track_is_re_trusted(self):
-        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
-        p.update(1.0, 0.0)
-        for i, v in enumerate((2.0, 2.0, 2.0)):  # jumped 98 deg in 10 ms (too fast), then stayed there
-            p.update(v, 0.01 * (i + 1))
-        self.assertTrue(p.ok)
-        self.assertAlmostEqual(p.angle, 98.3, delta=0.1)
+        self.assertEqual(p.state, "latched")
 
     def test_no_motion_stops(self):
         ctrl = self._mover(vps=0.0)  # shaft held: the pot never moves
@@ -891,51 +844,6 @@ class TestJog(unittest.TestCase):
         self.assertIsNone(ctrl.cycle)
         self.assertTrue(any("no motion" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
 
-    def test_loaded_cycles_through_the_dead_zone_complete(self):
-        # QE 019 N1: timed cycles at >= 0.15 A turning the shaft through the pot's dead zone must not stop as stalls
-        # ~49 to ~325 deg/s. Slower than ~45 deg/s at full speed the ~30 deg gap takes longer than the 0.72 s window
-        # and the cycle stops as a stall (QE 019, N3: the floating wiper no longer counts as motion)
-        for vps in (0.5, 1.0, 2.0, 3.3):
-            for amps in (0.15, 0.40):
-                with self.subTest(vps=vps, amps=amps):
-                    ctrl = self._mover(vps=vps)
-                    self.adc.run_a = amps
-                    self.adc.pot_u = 2.9  # each stroke crosses 3.35 V into the dead zone and out the other side
-                    ctrl.request("cycle", 3.0, 2, 0.3)
-                    self._run_for(ctrl, 15.0)  # 2 x (3 s + 3 s) plus brakes and rests
-                    self.assertIsNone(ctrl.cycle)
-                    self.assertTrue(ctrl.cycle_result["complete"], [e["text"] for e in ctrl.events])
-                    self.assertFalse(any("no motion" in e["text"] for e in ctrl.events))
-
-    def _jam_in_the_gap(self, amps=0.30):
-        ctrl = self._mover(vps=0.0)  # shaft held...
-        self.adc.run_a = amps
-        self.adc.pot_u = 3.30  # last trusted reading near the top end, as when the shaft turns into the gap
-        self._run_for(ctrl, 0.2)
-        self.adc.pot_u = 3.35 + 0.1  # ...then in the gap, where the wiper floats and wanders as recorded
-        self._run_for(ctrl, 0.2)
-        self.assertFalse(ctrl.pot.ok)
-        return ctrl
-
-    def test_jam_in_the_dead_zone_stops_a_cycle(self):
-        # QE 019, N3: at 29d446c the float's 5 mV wander kept restarting the timer and a jammed cycle drove 120 s
-        ctrl = self._jam_in_the_gap()
-        ctrl.request("cycle", 3.0, 5, 0.3)
-        t0 = self.clock.t
-        self._run_for(ctrl, 1.5)
-        stops = [e for e in ctrl.events if "no motion" in e["text"]]
-        self.assertTrue(stops, [e["text"] for e in ctrl.events])
-        self.assertIsNone(ctrl.cycle)
-        self.assertFalse(ctrl.cycle_result["complete"])
-        self.assertLess(stops[0]["t"] - t0, jog_server.NO_MOTION_S + jog_server.GAP_DEG / jog_server.FULL_SPEED_DPS
-                        + 0.1)
-
-    def test_jam_in_the_dead_zone_stops_a_hold(self):
-        ctrl = self._jam_in_the_gap()
-        ctrl.request("fwd")
-        self._run_for(ctrl, 0.3)
-        self.assertIn(ctrl.state, ("brake", "asleep"))
-
     def test_no_motion_threshold_is_5_mv(self):
         # pins RAW_MOVE_V: a still shaft with +-2 mV of noise stops; one creeping ~10 mV per window keeps going
         ctrl = self._mover(vps=0.0)
@@ -949,15 +857,6 @@ class TestJog(unittest.TestCase):
         self._run_for(ctrl, 7.0)
         self.assertFalse(any("no motion" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
 
-    def test_pot_trusted_again_while_turning_out_of_the_dead_zone(self):
-        ctrl = self._mover(vps=3.3)
-        self.adc.pot_u = 3.0
-        self._run_for(ctrl, 0.1)
-        ctrl.request("cycle", 2.0, 1, 0.3)
-        self._run_for(ctrl, 1.2)  # forward, across the gap, still turning
-        self.assertEqual(ctrl.state, "fwd")
-        self.assertTrue(ctrl.pot.ok)
-
     def test_hold_stops_on_an_untrusted_pot(self):
         ctrl = self._mover()
         ctrl.request("fwd")
@@ -969,8 +868,7 @@ class TestJog(unittest.TestCase):
 
     def test_hold_stops_at_the_bottom_end_in_reverse(self):
         ctrl = self._mover()
-        self.adc.pot_u = 0.4  # ~29 deg above the bottom of SAFE_V; reverse lowers the voltage
-        self._run_for(ctrl, 0.2)
+        self._place(ctrl, 0.4)  # ~29 deg above the bottom of SAFE_V; reverse lowers the voltage
         ctrl.request("rev")
         self._run_for(ctrl, 1.0)
         self.assertTrue(any("end of the pot's safe track" in e["text"] for e in ctrl.events))
@@ -979,8 +877,7 @@ class TestJog(unittest.TestCase):
     def test_track_end_follows_the_flipped_sign(self):
         ctrl = self._mover()
         ctrl.flip_angle()  # sign -1: the angle now falls going forward; the voltage still rises
-        self.adc.pot_u = 3.0
-        self._run_for(ctrl, 0.2)
+        self._place(ctrl, 3.0)
         ctrl.request("fwd")
         self._run_for(ctrl, 1.0)
         self.assertTrue(any("end of the pot's safe track" in e["text"] for e in ctrl.events))
@@ -988,8 +885,7 @@ class TestJog(unittest.TestCase):
 
     def test_track_end_margin_stops_short_of_the_safe_end(self):
         ctrl = self._mover(vps=1.0)  # ~98 deg/s: the 3 deg margin decides
-        self.adc.pot_u = 3.0
-        self._run_for(ctrl, 0.2)
+        self._place(ctrl, 3.0)
         ctrl.request("fwd")
         self._run_for(ctrl, 1.5)
         self.assertLess(ctrl.pot.last_v, 3.25)  # with no margin it would only stop past 3.25 V
@@ -1003,8 +899,7 @@ class TestJog(unittest.TestCase):
 
     def test_hold_stops_at_the_end_of_the_safe_track(self):
         ctrl = self._mover()
-        self.adc.pot_u = 3.0  # 25 deg below the top of SAFE_V; forward raises the voltage
-        self._run_for(ctrl, 0.2)
+        self._place(ctrl, 3.0)  # 25 deg below the top of SAFE_V; forward raises the voltage
         ctrl.request("fwd")
         self._run_for(ctrl, 1.0)
         self.assertEqual(ctrl.state, "asleep")
@@ -1063,10 +958,10 @@ class TestJog(unittest.TestCase):
 
     def test_move_refused_while_the_pot_is_untrusted(self):
         ctrl = self._mover()
-        ctrl.pot.ok = False
+        ctrl.pot.state = "suspect"
         with self.assertRaises(ValueError) as cm:
             ctrl.request_move("step", 10)
-        self.assertIn("dead zone", str(cm.exception))
+        self.assertIn("pot reading unreliable (suspect", str(cm.exception))
 
     def test_move_times_out(self):
         ctrl = self._mover(vps=0.05)  # ~5 deg/s: progress keeps coming, the target doesn't
@@ -1132,28 +1027,37 @@ class TestJog(unittest.TestCase):
 
 class TestPot(unittest.TestCase):
     def test_scale_zero_and_flip(self):
-        p = pot.PotAngle(dict(pot.DEFAULT_CAL))
-        self.assertEqual(p.update(1.0), 0.0)  # first reading is 0 deg until zeroed
-        self.assertAlmostEqual(p.update(1.916), 0.916 * 98.3, places=6)  # ~90 deg
+        p, t = trusted_pot(1.0, 0.0, zero_v=None), 0.35
+        self.assertEqual(p.angle, 0.0)  # first trusted reading is 0 deg until zeroed
+        for i in range(1, 11):  # turned up 0.916 V (~90 deg) at ~90 deg/s
+            t += 0.1
+            p.update(1.0 + 0.0916 * i, t)
+        self.assertTrue(p.ok)
+        self.assertAlmostEqual(p.angle, 0.916 * 98.3, places=6)
         p.zero_here()
         self.assertEqual(p.angle, 0.0)
-        self.assertAlmostEqual(p.update(1.0), -0.916 * 98.3, places=6)
+        for i in range(1, 11):
+            t += 0.1
+            p.update(1.916 - 0.0916 * i, t)
+        self.assertAlmostEqual(p.angle, -0.916 * 98.3, places=6)
         p.flip()
-        self.assertAlmostEqual(p.update(1.0), 0.916 * 98.3, places=6)
+        self.assertAlmostEqual(p.update(1.0, t + 0.01), 0.916 * 98.3, places=6)
 
-    def test_unwraps_across_the_gap(self):
-        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=3.0))
-        p.update(3.0)
-        a = p.update(0.1)  # 3.35 -> 0 jump: kept counting forward, not a full turn back
-        self.assertGreater(a, 0)
-        self.assertAlmostEqual(a, (0.1 + 360 / 98.3 - 3.0) * 98.3, places=6)
-        self.assertAlmostEqual(p.update(3.0), 0.0, places=6)  # and back again
+    def test_no_turn_counting_across_the_gap(self):
+        # ruling 1, rule 7: the turn counter is gone; a 3.35 -> 0 V jump is a dropped reading, never a turn
+        p = trusted_pot(3.0, 0.0, zero_v=3.0)
+        p.update(0.1, 0.36)
+        self.assertEqual(p.state, "suspect")
+        self.assertEqual(p.angle, 0.0)
+        self.assertFalse(hasattr(p, "turns"))
 
     def test_cal_persists(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "pot_cal.json")
             p = pot.PotAngle(pot.load_cal(path), path=path)
-            p.update(2.0)
+            for i in range(40):
+                p.update(2.0, 0.01 * i)
+            p.confirm(0.39)
             p.zero_here()
             p.flip()
             cal = pot.load_cal(path)
@@ -1172,6 +1076,419 @@ class TestPot(unittest.TestCase):
         dps = (driven[-1]["angle"] - driven[0]["angle"]) / (driven[-1]["t_s"] - driven[0]["t_s"])
         self.assertAlmostEqual(dps, 0.5 * 98.3, delta=3)
         self.assertEqual(ctrl.status()["pot_errors"], 0)
+
+
+def trusted_pot(v, t, zero_v=1.0, every=0.01):
+    """A PotAngle held still at `v` for 0.35 s up to time `t + 0.35`, then confirmed there (the operator's word)."""
+    p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=zero_v))
+    n = int(round(0.35 / every))
+    for i in range(n + 1):
+        p.update(v, t + i * every)
+    p.confirm(t + n * every)
+    assert p.ok
+    return p
+
+
+class TestPotTrust(unittest.TestCase):
+    """PE 018's ruling 1 (N2) and ruling 2 (start in the gap): ~/NereusData/ops/pe_specs/
+    RULINGS_urchincam_pr1_2026-11-15.md @ 09a395d1c56a, tests a-h."""
+
+    # cam02 11/15 jog_194426 samples.csv, every pot reading from t = 1166.98804 (forward from 2.58 V, the run-up) to
+    # 1168.79649: the out stroke reaches the top end, brakes into the gap, the reverse stroke stalls on the 0 V end
+    # terminal, then the wiper floats 0.08-0.56 V with the motor asleep (QE 019 @ 8b86874, its window 1167.79-1168.80).
+    QE_1168 = (
+        (1166.98804, 2.58275), (1166.99886, 2.58637), (1167.01064, 2.59987), (1167.02287, 2.62800),
+        (1167.03378, 2.65000), (1167.04362, 2.67063), (1167.05320, 2.69612), (1167.06324, 2.71988),
+        (1167.07403, 2.74625), (1167.08540, 2.77088), (1167.09552, 2.79113), (1167.10507, 2.81225),
+        (1167.11462, 2.83225), (1167.12614, 2.85462), (1167.13714, 2.87787), (1167.14684, 2.89825),
+        (1167.15662, 2.92188), (1167.16628, 2.94050), (1167.17578, 2.96525), (1167.18726, 2.99513),
+        (1167.19836, 3.01925), (1167.20827, 3.03975), (1167.21780, 3.06325), (1167.23033, 3.09350),
+        (1167.25128, 3.13900), (1167.26090, 3.16550), (1167.27044, 3.18975), (1167.27993, 3.21238),
+        (1167.28956, 3.23663), (1167.30338, 3.27275), (1167.31304, 3.29588), (1167.32256, 3.31712),
+        (1167.33217, 3.33475), (1167.34157, 3.35050), (1167.35168, 3.35162), (1167.36391, 3.35162),
+        (1167.37430, 0.77200), (1167.38643, 0.59450), (1167.39849, 0.64587), (1167.41142, 0.00175),
+        (1167.42183, 0.00000), (1167.43253, 0.00000), (1167.44185, -0.00013), (1167.45112, 0.00000),
+        (1167.46193, -0.00013), (1167.47174, 0.00000), (1167.48283, 0.00000), (1167.49353, -0.00013),
+        (1167.50325, 0.00000), (1167.51517, 0.00000), (1167.52526, -0.00013), (1167.53506, -0.00013),
+        (1167.54452, -0.00013), (1167.55358, 0.00000), (1167.56290, -0.00013), (1167.57254, 0.00000),
+        (1167.58201, 0.00000), (1167.59457, -0.00013), (1167.60426, -0.00013), (1167.61375, 0.00000),
+        (1167.62397, 0.00000), (1167.63611, -0.00013), (1167.64599, -0.00025), (1167.65547, -0.00013),
+        (1167.66473, 0.00000), (1167.67385, -0.00025), (1167.68357, 0.00000), (1167.69306, -0.00013),
+        (1167.70311, -0.00013), (1167.71272, -0.00013), (1167.72188, -0.00013), (1167.73098, -0.00013),
+        (1167.74095, -0.00013), (1167.75037, -0.00013), (1167.76042, -0.00013), (1167.76984, -0.00013),
+        (1167.77899, 0.00000), (1167.78835, -0.00013), (1167.79816, -0.00013), (1167.80768, 0.01713),
+        (1167.81763, 0.52113), (1167.83583, 0.54238), (1167.85644, 0.55175), (1167.87647, 0.55412),
+        (1167.89484, 0.55575), (1167.91383, 0.55225), (1167.93385, 0.55063), (1167.95245, 0.54250),
+        (1167.97159, 0.52687), (1167.99654, 0.53450), (1168.02360, 0.53363), (1168.04368, 0.53663),
+        (1168.06253, 0.52213), (1168.08259, 0.51413), (1168.10266, 0.53200), (1168.12135, 0.51550),
+        (1168.14145, 0.49088), (1168.16177, 0.37738), (1168.18065, 0.30588), (1168.20547, 0.19013),
+        (1168.22482, 0.09525), (1168.24461, 0.08375), (1168.26569, 0.08525), (1168.28452, 0.08625),
+        (1168.30450, 0.08713), (1168.32442, 0.09763), (1168.34345, 0.11050), (1168.36308, 0.16187),
+        (1168.38312, 0.23137), (1168.40182, 0.36850), (1168.42796, 0.20488), (1168.44765, 0.25300),
+        (1168.46679, 0.30912), (1168.48841, 0.32225), (1168.50721, 0.24525), (1168.52601, 0.18813),
+        (1168.54912, 0.12625), (1168.56789, 0.10338), (1168.58667, 0.09913), (1168.61228, 0.09112),
+        (1168.63172, 0.09337), (1168.65052, 0.09588), (1168.67512, 0.11025), (1168.69530, 0.12500),
+        (1168.71835, 0.11375), (1168.73731, 0.10575), (1168.75570, 0.09187), (1168.77718, 0.09250),
+        (1168.79649, 0.09563),
+    )
+
+    def _ctrl(self, **kw):
+        t = TestJog()
+        ctrl = t._ctrl(pot_every=10, **kw)
+        return t, ctrl
+
+    def _refused_everything(self, t, ctrl, root, opts):
+        for f in (lambda: ctrl.request_move("step", 10), lambda: ctrl.request_move("goto", 0),
+                  lambda: ctrl.request_move("wipe", 30), lambda: ctrl.request("fwd"), lambda: ctrl.request("rev"),
+                  lambda: ctrl.request("cycle", 3.0, 2, 0.3)):
+            with self.assertRaises(ValueError) as cm:
+                f()
+            self.assertIn("pot reading unreliable", str(cm.exception))
+        with self.assertRaises(ValueError):
+            jog_server.start_run(ctrl, {"motor": "m", "condition": "c", "stroke_s": 2, "cycles": 1},
+                                 {"fsr": 1.024, "sha": "x"}, root, opts)
+        self.assertEqual(os.listdir(root), [])  # the refused Run left no folder
+
+    # --- a: QE's recorded readings ---
+    def test_a_recorded_float_is_never_trusted(self):
+        t, ctrl = self._ctrl(confirm=False)
+        t0, v0 = self.QE_1168[0]
+        for i in range(36):  # lead-in, not recorded: the arm still at the first reading for 0.35 s
+            ctrl._read_pot(fast_v=v0, now=t0 - 0.36 + 0.01 * i)
+        t.clock.t = t0 - 0.01
+        ctrl.confirm_pot()
+        trusted = []
+        for tt, v in self.QE_1168:
+            ctrl._read_pot(fast_v=v, now=tt)
+            if ctrl.pot.ok:
+                trusted.append(v)
+            if tt >= 1167.79:
+                self.assertFalse(ctrl.pot.ok, (tt, v))
+                with self.assertRaises(ValueError):
+                    ctrl.request_move("step", 10)
+        self.assertTrue(trusted)
+        self.assertTrue(all(pot.SAFE_V[0] <= v <= pot.SAFE_V[1] for v in trusted))
+        self.assertLess(max(trusted), 3.25)
+        self.assertEqual(ctrl.pot.state, "latched")
+
+    def test_a_float_after_the_top_end_is_never_trusted(self):
+        # QE 019: 1.01, 1.03, 1.22 V after leaving the top end; readings 10 ms apart (the move rate on cam02)
+        p, t = trusted_pot(3.10, 0.0), 0.35
+        for v in (3.15, 3.20, 3.24):
+            t += 0.01
+            p.update(v, t)
+        for v in (1.01, 1.03, 1.22, 1.22, 1.03, 1.01):
+            t += 0.01
+            p.update(v, t)
+            self.assertFalse(p.ok, v)
+        self.assertEqual(p.state, "latched")
+
+    def test_a_slow_sine_float_is_never_trusted(self):
+        # QE 019's slow sine 0.30-0.60 V (its exact period isn't in hand: 2 s assumed), read every 20 ms, after the
+        # arm runs down off the bottom end; and the same from a fresh start
+        import math
+        sine = [0.45 - 0.15 * math.cos(2 * math.pi * k * 0.02 / 2.0) for k in range(300)]
+        p, t = trusted_pot(0.50, 0.0), 0.35
+        for v in (0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15):  # ~490 deg/s down to 15 deg from the end
+            t += 0.01
+            p.update(v, t)
+        self.assertTrue(p.ok)
+        for v in sine:
+            t += 0.02
+            p.update(v, t)
+            self.assertFalse(p.ok, (t, v))
+        fresh = pot.PotAngle(dict(pot.DEFAULT_CAL))
+        for k, v in enumerate(sine):
+            fresh.update(v, k * 0.02)
+            self.assertFalse(fresh.ok)
+
+    # --- b: start in the gap (ruling 2) ---
+    def test_b_start_in_the_gap_refuses_everything(self):
+        for amps in (0.15, 0.30):
+            for u in (3.45, 3.60):  # floating, then on the 0 V end terminal
+                with self.subTest(amps=amps, u=u), tempfile.TemporaryDirectory() as root:
+                    opts = os.path.join(root, "..", os.path.basename(root) + "_opts.json")
+                    with open(opts, "w") as f:
+                        json.dump({"motors": ["m"], "conditions": ["c"]}, f)
+                    try:
+                        t, ctrl = self._ctrl(confirm=False)
+                        t.adc.pot_vps, t.adc.run_a, t.adc.pot_u = 0.0, amps, u  # shaft held in the gap
+                        t._run_for(ctrl, 0.5)
+                        self.assertEqual(ctrl.status()["pot_state"], "latched")
+                        self.assertIn("The arm is on the track", ctrl.status()["pot_next"])
+                        self._refused_everything(t, ctrl, root, opts)
+                        t._run_for(ctrl, 1.0)
+                        self.assertNotIn((hw.GPIO_NSLEEP_HB, 1), t.gpio.log)  # the bridge never woke
+                    finally:
+                        os.remove(opts)
+
+    # --- c: a float that copies the track ---
+    def test_c_a_float_that_copies_the_track(self):
+        p = trusted_pot(0.12, 0.0)
+        p.update(0.19, 0.40)  # 50 ms later: the 0 V end (12 deg away) is within the 33 deg reach
+        self.assertEqual(p.state, "latched")
+        p = trusted_pot(1.50, 0.0)
+        p.update(1.57, 0.40)  # the same step mid-track
+        self.assertEqual(p.state, "trusted")
+        self.assertAlmostEqual(p.angle, (1.57 - 1.0) * 98.3, places=6)
+
+    # --- d: outside SAFE_V at each end ---
+    def test_d_a_reading_outside_the_safe_track(self):
+        for good, bad in ((3.20, 3.27), (0.15, 0.08)):
+            with self.subTest(bad=bad):
+                p = trusted_pot(good, 0.0)
+                p.update(bad, 0.36)  # a 7 deg step, inside the 9 deg reach, but outside SAFE_V
+                self.assertEqual(p.state, "suspect")
+                self.assertIn("outside the safe track", p.why)
+                self.assertAlmostEqual(p.angle, (good - 1.0) * 98.3, places=6)
+                p.update(bad, 0.37)  # 20 ms after the last trusted reading the end is within reach
+                self.assertEqual(p.state, "latched")
+
+    def _drive_then_bad_reading(self, kind, good, bad):
+        t, ctrl = self._ctrl()
+        t.adc.pot_vps = 0.0  # the shaft doesn't turn: the readings are only what the test sets
+        t._place(ctrl, good)
+        root = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(root))
+        if kind == "move":
+            ctrl.request_move("step", -30 if good > 1 else 30)
+        elif kind == "hold":
+            ctrl.request("fwd" if good < 1 else "rev")
+        elif kind == "cycle":
+            ctrl.request("cycle", 3.0, 2, 0.3)
+        else:
+            opts = os.path.join(root, "opts.json")
+            with open(opts, "w") as f:
+                json.dump({"motors": ["m"], "conditions": ["c"]}, f)
+            jog_server.start_run(ctrl, {"motor": "m", "condition": "c", "stroke_s": 3, "cycles": 2},
+                                 {"fsr": 1.024, "sha": "x"}, os.path.join(root, "runs"), opts)
+            run = ctrl.run
+            self.addCleanup(lambda: run.wait(5))  # its summary is written before the folder goes
+        t._run_for(ctrl, 0.2)
+        self.assertIn(ctrl.state, ("fwd", "rev"))
+        t.adc.pot_u = bad
+        t._run_for(ctrl, 0.3)
+        return t, ctrl
+
+    def test_d_moves_holds_cycles_and_runs_stop_with_the_reason(self):
+        # the sim reads the pot every tick during moves (small reach) and every 10th tick otherwise; the bad step is
+        # small enough for both
+        cases = {"move": ((3.23, 3.26), (0.12, 0.09)), "hold": ((3.20, 3.27), (0.15, 0.08)),
+                 "cycle": ((3.20, 3.27), (0.15, 0.08)), "run": ((3.20, 3.27), (0.15, 0.08))}
+        for kind, ends in cases.items():
+            for good, bad in ends:
+                with self.subTest(kind=kind, bad=bad):
+                    t, ctrl = self._drive_then_bad_reading(kind, good, bad)
+                    self.assertIn(ctrl.state, ("brake", "asleep"))
+                    texts = [e["text"] for e in ctrl.events]
+                    self.assertTrue(any("pot reading unreliable" in x and "outside the safe track" in x
+                                        for x in texts), texts)
+                    self.assertIsNone(ctrl.move)
+                    self.assertIsNone(ctrl.cycle)
+                    if kind in ("cycle", "run"):
+                        self.assertFalse(ctrl.cycle_result["complete"])
+
+    def test_d_a_latch_in_a_cycle_pause_stops_the_next_stroke(self):
+        t, ctrl = self._ctrl()
+        t.adc.pot_vps = 0.0
+        ctrl.request("cycle", 0.5, 3, 2.0)
+        t._run_for(ctrl, 1.5)  # first cycle done, resting
+        self.assertEqual(ctrl.cycle["stage"], "pause")
+        seq0, log0 = ctrl.seq, len(t.gpio.log)
+        t.adc.pot_u += 1.6  # moved by hand ~157 deg during the rest, further than the 147 deg to the 0 V end: latched
+        t._run_for(ctrl, 2.5)
+        self.assertEqual(ctrl.pot.state, "latched")
+        self.assertFalse([r for r in ctrl.buf if r["seq"] > seq0 and r["state"] in ("fwd", "rev")])
+        self.assertNotIn((hw.GPIO_NSLEEP_HB, 1), t.gpio.log[log0:])  # the bridge never woke for the next stroke
+        self.assertIsNone(ctrl.cycle)
+        self.assertIn("pot reading unreliable", ctrl.cycle_result["reason"])
+
+    def test_d_a_latch_in_the_brake_stops_the_reverse_stroke(self):
+        t, ctrl = self._ctrl()
+        t.adc.pot_vps = 0.0
+        ctrl.request("cycle", 0.5, 1, 0.3)
+        t._run_for(ctrl, 0.45)
+        self.assertEqual(ctrl.state, "fwd")
+        while ctrl.state == "fwd":  # to the end of the forward stroke
+            t._run_for(ctrl, 0.001)
+        log0 = len(t.gpio.log)
+        ctrl.pot.state, ctrl.pot.why = "latched", "test"  # latched during the brake
+        t._run_for(ctrl, 0.5)
+        self.assertNotIn((hw.GPIO_IN2, 1), t.gpio.log[log0:])  # reverse never driven
+        self.assertIsNone(ctrl.cycle)
+        self.assertTrue(any("rev not started: pot reading unreliable" in e["text"] for e in ctrl.events))
+
+    # --- e: suspect, then trusted again or latched ---
+    def test_e_one_bad_reading_mid_track_then_good_ones(self):
+        p = trusted_pot(1.70, 0.0)
+        p.update(2.70, 0.36)  # one impossible reading (98 deg in 10 ms)
+        self.assertEqual(p.state, "suspect")
+        self.assertAlmostEqual(p.angle, 0.70 * 98.3, places=6)
+        p.update(1.71, 0.37)
+        self.assertEqual(p.state, "trusted")  # no confirm needed
+        self.assertAlmostEqual(p.angle, 0.71 * 98.3, places=6)
+
+    def test_e_a_suspect_pot_that_outlasts_the_reach_latches(self):
+        p = trusted_pot(1.00, 0.0)  # 98 deg from the 0 V end: the reach gets there in ~0.16 s
+        t = 0.35
+        while p.state != "latched":  # 2.50 V is 147 deg away: never within reach before the end is
+            t += 0.01
+            p.update(2.50, t)
+            self.assertNotEqual(p.state, "trusted")
+        self.assertLess(t, 0.55)
+        for _ in range(50):  # good readings after the latch don't bring it back
+            t += 0.01
+            p.update(1.00, t)
+            self.assertEqual(p.state, "latched")
+
+    def test_e_a_loop_stall_mid_move_stays_trusted(self):
+        # cam02 11/15: readings 6 ms apart, then a 51 ms stall while the shaft kept turning at ~280 deg/s
+        p = trusted_pot(1.38688, 8.20062 - 0.36, zero_v=0.774)
+        for t, v in [(8.20062, 1.38688), (8.20671, 1.40600), (8.21270, 1.42063), (8.26370, 1.5655),
+                     (8.2675, 1.5755), (8.2713, 1.5860)]:
+            p.update(v, t)
+            self.assertTrue(p.ok, (t, v))
+        self.assertAlmostEqual(p.angle, (1.5860 - 0.774) * 98.3, places=6)
+
+    # --- f: the confirm ---
+    def test_f_confirm_is_refused_while_driving_or_queued(self):
+        t, ctrl = self._ctrl()
+        ctrl.request("fwd")
+        t._run_for(ctrl, 0.2)
+        with self.assertRaises(ValueError) as cm:
+            ctrl.confirm_pot()
+        self.assertIn("stop the motor first", str(cm.exception))
+        ctrl.request("stop")
+        t._run_for(ctrl, 0.5)
+        ctrl.request_move("wipe", 20, cycles=2, pause_s=5.0)
+        t._run_for(ctrl, 1.5)  # resting between moves: asleep, more queued
+        self.assertEqual(ctrl.state, "asleep")
+        self.assertTrue(ctrl.moves)
+        with self.assertRaises(ValueError) as cm:
+            ctrl.confirm_pot()
+        self.assertIn("stop the motor first", str(cm.exception))
+
+    def test_f_confirm_is_refused_outside_the_safe_track(self):
+        t, ctrl = self._ctrl(confirm=False)
+        t.adc.pot_u = 3.60  # on the 0 V end terminal, in the gap
+        t._run_for(ctrl, 0.5)
+        with self.assertRaises(ValueError) as cm:
+            ctrl.confirm_pot()
+        self.assertIn("outside the safe track", str(cm.exception))
+        self.assertEqual(ctrl.pot.state, "latched")
+
+    def test_f_confirm_is_refused_while_the_reading_moves(self):
+        t, ctrl = self._ctrl(confirm=False)
+        t.adc.pot_jitter = (0.0, 0.006)  # 6 mV read to read: the arm is being turned
+        t._run_for(ctrl, 0.5)
+        with self.assertRaises(ValueError) as cm:
+            ctrl.confirm_pot()
+        self.assertIn("hold the arm still", str(cm.exception))
+
+    def test_f_confirm_accepted_logged_and_keeps_the_zero(self):
+        t, ctrl = self._ctrl(confirm=False)
+        zero = ctrl.pot.cal["zero_v"] = 1.20
+        t._run_for(ctrl, 0.5)
+        self.assertIsNone(ctrl.angle)
+        out = ctrl.confirm_pot()
+        self.assertEqual(out["pot_state"], "trusted")
+        self.assertEqual(ctrl.pot.cal["zero_v"], zero)
+        self.assertAlmostEqual(ctrl.angle, (1.5 - 1.20) * 98.3, delta=0.01)
+        self.assertIn("pot confirmed on the track by the operator", ctrl.events[-1]["text"])
+        ctrl.request_move("step", 10)  # moves allowed again
+
+    def test_f_confirm_window_and_band(self):
+        def confirmable(change_ago=None, noise=0.0):
+            p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
+            now = 1.0
+            for i in range(101):
+                tt = round(i * 0.01, 2)
+                v = 1.5 + (noise if i % 2 else 0.0)
+                if change_ago is not None and tt < round(now - change_ago, 2):
+                    v = 1.45  # where the arm was before it was put here
+                p.update(v, tt)
+            try:
+                p.confirm(now)
+                return True
+            except ValueError:
+                return False
+        self.assertTrue(confirmable(change_ago=0.32))  # pins CONFIRM_S = 0.3 from above...
+        self.assertFalse(confirmable(change_ago=0.28))  # ...and below
+        self.assertTrue(confirmable(noise=0.0049))  # pins CONFIRM_BAND_V = 5 mV
+        self.assertFalse(confirmable(noise=0.0051))
+
+    # --- g: the two stated limits ---
+    def test_g_limit_a_confirm_in_the_gap_on_a_still_float_is_accepted(self):
+        # the confirm is the operator's word: given with the arm in the gap while the float sits still inside SAFE_V
+        # it is accepted, and a jam there is then stopped by the no-motion stop only if the float holds within 5 mV;
+        # with the float wandering as recorded, only the 0.5 A cut-off or the max run time stops a hold
+        t, ctrl = self._ctrl(confirm=False, max_on_s=3.0)
+        t.adc.pot_vps, t.adc.run_a, t.adc.pot_u = 0.0, 0.30, 3.45
+        t.adc.FLOAT_SEQ = (0.57,)  # a float that sits still
+        t._run_for(ctrl, 0.5)
+        ctrl.confirm_pot()
+        self.assertTrue(ctrl.pot.ok)  # the limit: trusted in the gap
+        t.adc.FLOAT_SEQ = SimMotorADC.FLOAT_SEQ  # then it wanders 20-30 mV, as recorded
+        ctrl.request("fwd")
+        t._run_for(ctrl, 2.5)
+        self.assertEqual(ctrl.state, "fwd")  # past the 0.72 s no-motion window: still driving into the jam
+        self.assertTrue(ctrl.pot.ok)
+        t._run_for(ctrl, 1.0)
+        self.assertTrue(any("max run time" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
+
+    def test_g_limit_a_turn_faster_than_max_dps_is_unseen(self):
+        # the proof assumes the arm never turns faster than MAX_DPS (600 deg/s): turned by hand ~120 deg into the gap in
+        # 50 ms (2400 deg/s), the float reads 0.95 V, inside the 33 deg reach of the last trusted 1.00 V: trusted
+        p = trusted_pot(1.00, 0.0)
+        p.update(0.95, 0.40)
+        self.assertTrue(p.ok)
+
+    # --- h: boundaries that pin each constant ---
+    def test_h_safe_track_edges(self):
+        for good, edge, past in ((0.15, 0.10, 0.099), (3.20, 3.25, 3.251)):
+            with self.subTest(edge=edge):
+                p = trusted_pot(good, 0.0)
+                p.update(edge, 0.36)
+                self.assertEqual(p.state, "trusted")
+                p = trusted_pot(good, 0.0)
+                p.update(past, 0.36)
+                self.assertEqual(p.state, "suspect")
+
+    def test_h_reach_against_the_track_end(self):
+        # last trusted 3.20 V: (3.35 - 3.20) x 98.3 = 14.745 deg to the top end; reach = 600 x dt + 3 deg
+        # just under it the reading is trusted, just over it latched (pins TRACK_V, MAX_DPS and the 3 deg)
+        dist = (3.35 - 3.20) * 98.3
+        for margin, want in ((-0.01, "trusted"), (0.01, "latched")):
+            with self.subTest(margin=margin):
+                p = trusted_pot(3.20, 0.0)
+                p.update(3.20, 0.35 + (dist + margin - 3.0) / 600.0)
+                self.assertEqual(p.state, want)
+        # the bottom end, the same way (last trusted 0.15 V: 14.745 deg)
+        for margin, want in ((-0.01, "trusted"), (0.01, "latched")):
+            with self.subTest(end="bottom", margin=margin):
+                p = trusted_pot(0.15, 0.0)
+                p.update(0.15, 0.35 + (0.15 * 98.3 + margin - 3.0) / 600.0)
+                self.assertEqual(p.state, want)
+
+    def test_h_step_within_reach(self):
+        # mid-track (the gap far away): a step of reach - 0.01 deg is trusted, reach + 0.01 deg suspect
+        dt = 0.01
+        reach = 600 * dt + 3.0
+        for margin, want in ((-0.01, "trusted"), (0.01, "suspect")):
+            with self.subTest(margin=margin):
+                p = trusted_pot(1.70, 0.0)
+                p.update(1.70 + (reach + margin) / 98.3, 0.35 + dt)
+                self.assertEqual(p.state, want)
+
+    def test_h_every_start_is_latched(self):
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
+        self.assertEqual(p.state, "latched")
+        for i in range(100):
+            p.update(1.5, i * 0.01)  # good, still readings: still latched until the operator confirms
+        self.assertFalse(p.ok)
+        self.assertIsNone(p.angle)
+        with self.assertRaises(ValueError):
+            p.zero_here()  # no zero on an untrusted pot
 
 
 class TestHttpGuard(unittest.TestCase):

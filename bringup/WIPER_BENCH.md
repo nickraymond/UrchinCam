@@ -97,9 +97,12 @@ Motor only, 5 V assumed. Move time includes the 0.1 s brake and 0.15 s settle, w
 - What the software does about it (`pi/pot.py`):
   - moves stay inside **0.10-3.25 V**; a move or wipe whose target would leave it is refused, with the room left each
     way (Jog page shows it);
-  - a reading that jumps further than the shaft can turn (600 deg/s + 3 deg) is held as untrusted; trusted again when
-    three readings agree near a track end, or (mid-track) form a possible path;
-  - the angle counts turns across the gap (unwrapped), so the readout is 0-360 with the total turned under it.
+  - three states (PE 018's rulings (`~/NereusData/ops/pe_specs/RULINGS_urchincam_pr1_2026-11-15.md` @ 09a395d1c56a), ruling 1): **trusted** only while the gap is out of reach (600 deg/s x time
+    since the last trusted reading + 3 deg is less than that reading's distance to the nearer track end), the reading
+    is inside 0.10-3.25 V and its step is within that reach; **suspect** when the gap is out of reach but the reading
+    fails a test (dropped; a later good reading trusts it again); **latched** when a reading arrives with the gap
+    within reach, and at every start of the server (ruling 2). Only the operator's confirm leaves latched;
+  - no turn counting: nothing drives through the gap, so the angle never crosses it.
 - **Set-up rule:** mount the pot so the wiper's whole working sweep sits mid-track. For the 0-90 deg wipe the zero is
   at ~0.77 V on cam02 today: 243 deg of room forward, 66 deg back.
 - Open: once (11/15) the pot reading jumped 21 deg in 10 ms while the motor was only starting to reverse, and stayed
@@ -117,13 +120,14 @@ and the Pi's Tailscale address:
 | `/runs` Runs | tagged multi-cycle runs (motor, condition, stroke time, cycles), one folder each under `~/NereusData/UrchinCam/bench_runs/`, include/exclude checkbox per run, summary stats |
 | `/jog` Jog | angle steps (1/5/15/45/90 deg or typed), speed 10-100 %, hold to jog, zero / go to 0, wipe by angle (sweep, cycles), method picker, current vs angle, per-move error / energy / time table |
 
-API: `/stream` (live samples + status), `/cmd`, `/move`, `/settings`, `/pot/zero`, `/pot/flip`, `/api/runs`,
+API: `/stream` (live samples + status), `/cmd`, `/move`, `/settings`, `/pot/zero`, `/pot/flip`, `/pot/confirm`, `/api/runs`,
 `/api/summary`, `/api/moves`, `/api/loop` (control-loop pauses with their cause).
 
 Safety (each has a desk test): the motor stops on the current cut-off (default 0.5 A / 250 ms, editable), after the
 max run time (holds), when no page heartbeat arrives for 1.5 s (also between cycles and between queued moves), on no
 motion (moves: 0.6 s plus gap time; holds, timed wipe cycles and Runs: the same window while drawing >= 0.15 A), at
-3 deg from either end of the pot's safe track during a hold, on an untrusted pot reading (moves and holds), on moving
+3 deg from either end of the pot's safe track during a hold, on a suspect or latched pot (moves, holds, timed cycles and
+Runs; none of them starts on one either), on moving
 away from the target, on a move timeout, on 20 failed ADC reads in a row, on no drive current below 100 % (PWM
 re-created once first), and on any control-thread exception (bridge put to sleep, pages show Stopped). POSTs must be
 JSON, to the bench's own address, from the same origin. LED1 shows green forward, red reverse.
@@ -133,12 +137,23 @@ The heartbeat is global: any open page that is driving or moving keeps it alive.
 Limits of the no-motion stop (QE 019): it needs the pot (`--pot-every` > 0, the default) and a current of at least
 0.15 A; below 0.15 A, or with no pot, a jammed shaft is driven for the whole stroke time of a timed cycle (up to 30 s)
 and only the 0.5 A cut-off can stop it. The stall current at reduced duty is not measured (stage 9 not run). Only
-trusted pot readings count as motion, so a healthy cycle turning slower than ~45 deg/s at 100 % is stopped as a stall
-when it crosses the pot's gap (open item 6).
+trusted pot readings count as motion. A timed cycle or Run can no longer pass through the pot's gap: the pot latches
+first and the cycle stops.
 
-Getting back from the dead zone: a hold stops at once and a move is refused while the pot is untrusted. Put the
-motor to sleep (STOP), turn the shaft by hand back onto the track until the page shows a pot reading between 0.10 and
-3.25 V, then carry on. When the service stops it puts the bridge to sleep and releases the pins; the MP6550's
+Limits of the pot's trust (ruling 1, each pinned by a desk test): (1) the confirm is the operator's word. Given with
+the arm in the gap while the float sits still inside 0.10-3.25 V, it is accepted; a jam there is then stopped by the
+no-motion stop only while the float holds within 5 mV, and once it wanders (20-30 mV, as recorded) only the 0.5 A
+cut-off or the max run time stops it. (2) The proof assumes the arm never turns faster than 600 deg/s; a faster turn
+by hand can carry it into the gap unseen. Near the ends the pot latches instead of guessing: on cam02 the pot was read
+every 19 ms (median) with the motor asleep and every 10 ms while driving (`from_cam02/2026-11-15_jog_194426`), a reach
+of about 14 and 9 deg, so an arm resting within about 14 deg (0.15 V) of a track end latches at the next reading and a
+confirm there doesn't hold.
+
+Getting back from the dead zone, and after every restart: the pages show the pot's state and what to do next. Put
+the motor to sleep (STOP), turn the shaft by hand onto the track, well away from both ends, hold it still, and press
+"The arm is on the track" (`/pot/confirm`). It is taken only with the bridge asleep, nothing running or queued, the
+reading inside 0.10-3.25 V and every reading of the last 0.3 s within 5 mV; it keeps the zero and is logged as an
+event. Zero here needs a trusted pot. When the service stops it puts the bridge to sleep and releases the pins; the MP6550's
 internal pull-downs (datasheet p. 3) then hold IN1/IN2 low, so it can't drive (nSLEEP may still read high from the
 Pi's default pull, as seen at boot: the bridge coasts). So `jog-bench.service` has no `ExecStopPost`.
 
@@ -154,8 +169,8 @@ Pi's default pull, as seen at boot: the bridge coasts). So `jog-bench.service` h
 | First stroke after a restart misses 4-7 deg | learned brake lead starts untrained (QE 019) | leads saved to `motion_cal.json` and reloaded (not yet re-run on hardware) |
 | Stall under the cut-off could drive for minutes in cycle mode | no-motion stop existed only in moves (QE 019) | no-motion stop in every drive mode while drawing current |
 | Any page on the tailnet could drive the motor | POSTs took any Origin and content type (QE 019) | JSON only, allowed Host, same origin |
-| Floating wiper trusted as a turning shaft (29d446c) | the floating wiper drifts 20-30 mV one way on its own (jog_194426 t=908.8: 0.591, 0.598, 0.619 V; QE 019 N2) | partial: the "moving path" re-trust ignores readings in 0.45-0.85 V (`pot.FLOAT_V`), which stops the t=908.8 case, but recorded floats reach 0.08-1.22 V and are still trusted outside the band (t=1168.2: 0.19 V, 30 readings, motor asleep; QE 019 @ 8b86874). **Open** (item 7) |
-| Jam in the dead zone never stopped (29d446c) | the float restarted the 5 mV no-motion timer on 189 of 217 reads while driving (QE 019 N3) | only trusted pot changes count as motion. Limit: a cycle whose shaft turns slower than ~45 deg/s crosses the ~30 deg gap slower than the 0.72 s window (at 100 %) and stops as a stall (simulator: 44 deg/s stops, 49 completes; a 50 % cycle at ~30 deg/s stops too, per QE 019's checker). Not fixed when the bench **starts** with the arm in the gap: the first reading is trusted unchecked, so the float restarts the timer and only the 0.5 A cut-off is left (QE 019 @ 8b86874; item 7) |
+| Floating wiper trusted as a turning shaft (29d446c) | the floating wiper drifts 20-30 mV one way on its own (jog_194426 t=908.8: 0.591, 0.598, 0.619 V; QE 019 N2) | ruling 1: the re-trust paths and `FLOAT_V` are gone; trust is kept only while the gap is provably out of reach and comes back only on the operator's confirm. QE's recorded readings (t=1166.99-1168.80, with the run-up) are never trusted once the arm nears the top end (desk test a). Limits above |
+| Jam in the dead zone never stopped (29d446c) | the float restarted the 5 mV no-motion timer on 189 of 217 reads while driving (QE 019 N3) | only trusted pot changes count as motion, and since ruling 1 nothing drives on an untrusted pot, so a cycle stops as the pot latches near the gap. A start in the gap is fixed by ruling 2: the server starts latched and refuses moves, holds, cycles and Runs until the operator confirms (desk test b) |
 
 ## cam02 is a bench now, not a camera
 
@@ -192,15 +207,16 @@ reproduce: QE 019 found 3 in that run's window in the later saved snapshot
    ~1.1 deg scatter is mechanical, and whether saved leads fix the first stroke.
 2. The idle pot read (between moves) sometimes stalls up to 56 ms; moves use the streamed path and aren't affected.
 3. The 21 deg pot jump above.
-4. Stall test (card stage 9) not run yet; motor part numbers and stall current unknown. Ethernet (stage 5) 5.1-5.6
-   passed 11/15 3:21 PM (test card); 5.7 soak not run.
-5. Slow cycles: at 50 % the seal turns the shaft only ~30 deg/s (char run above); the window at 50 % is 0.83 s, so
-   a 50 % cycle through the ~30 deg gap stops as a stall (QE 019's checker, simulator; not run on cam02).
+4. Stall test (card stage 9) not run yet; motor part numbers and stall current unknown. Ethernet (stage 5) 5.1-5.7
+   passed 11/15 (test card; 5.7 run differently); 5.8 (does the random MAC change at boot) is PROPOSED, not run.
+5. Slow cycles: at 50 % the seal turns the shaft only ~30 deg/s (char run above). No cycle passes through the gap
+   now (ruling 1), so this matters only for the no-motion window on the track.
 6. Angle error has no external reference (a marked stop or a camera) yet.
 8. Short `go to` moves miss: from -1.28 deg, `go to 0` ended at +3.93 after 3 corrections (11/15 5:16 PM,
    `2026-11-15_eth_soak_wipes_run2/meta.json`); the end-of-run `go to 0` from 4.5 deg ended at -1.27 after 3. A
    correction from rest at 75 % overshoots a 1-4 deg target. Stage 10's start gate (3 deg) refused that run.
-7. The floating wiper (QE 019 N2, open): in the gap the wiper floats anywhere from 0.08 to 1.22 V (QE 019) and drifts
-   slowly (t=1168, motor asleep: 0.55 V down to 0.08 V), overlapping real track voltages at both ends, so the software can't always tell it from the
-   track; and a bench started with the arm in the gap trusts the float, so a jam there is stopped only by the cut-off.
-   Proposed fix: a pull-down resistor on the wiper (TP6 to TP2) so the gap reads 0 V; needs a ruling.
+7. The floating wiper (QE 019 N2): in the gap the wiper floats anywhere from 0.08 to 1.22 V (QE 019) and drifts
+   slowly (t=1168, motor asleep: 0.55 V down to 0.08 V), overlapping real track voltages at both ends. Handled in
+   software by ruling 1 (latch, operator's confirm); limits above. The pull-down (100 kOhm, TP6 to TP2) is ruled the
+   right direction for the board but not this PR: it needs its own registered stage, QE's spec verdict and Nick's OK
+   before any run with it fitted, and every calibration and zero from before the fit is void until re-measured.

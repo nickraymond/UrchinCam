@@ -63,7 +63,8 @@ TOL_DEG = 0.75  # a step or go-to within this is done; outside it, a slow correc
 CORR_DUTY = 0.75  # speed cap for corrections: the seal needs 75-100 % to turn (Nick, cam02 11/15; 0.3 and 0.5 stalled)
 MAX_TRIES = 3  # corrections per target
 NO_MOTION_S = 0.6  # driving but the angle moved < 0.5 deg in this long -> stop (stalled, or too slow to turn);
-GAP_DEG = 35.0  # ...plus the time to cross the pot's ~30 deg gap, where the reading doesn't move, at this speed
+GAP_DEG = 35.0  # ...plus the time to cross the pot's ~30 deg gap at this speed (slack only since PE 018's ruling 1:
+# nothing drives through the gap any more, the pot latches first)
 WRONG_WAY_DEG = 5.0  # moving away from the target by this much -> stop: forward must raise the pot voltage
 # (true on cam02 11/13); if the J3 leads are swapped it lowers it, and every move runs away.
 FULL_SPEED_DPS = 300.0  # rough full-speed shaft speed (cam02 11/13: ~325 deg/s); only sets move timeouts
@@ -83,8 +84,8 @@ TRACK_END_DEG = 3.0  # manual holds stop this short of either end of the pot's s
 TRACK_END_S = 0.03  # ...or this many seconds of travel at the current speed, whichever is more
 RAW_MOVE_V = 0.005  # a change of a trusted pot reading this big counts as motion for the no-motion stop; a stalled
 # shaft holds within ~1-2 mV. Untrusted readings never count (QE 019, N3: the floating wiper changes by more than 5 mV
-# on 189 of 217 reads, cam02 11/15 jog_194426), so a jam in the dead zone stops; a turning shaft is trusted again once
-# out of the gap (pot.FLOAT_V), inside the window.
+# on 189 of 217 reads, cam02 11/15 jog_194426). Since PE 018's ruling 1 nothing drives with the pot untrusted (a
+# suspect or latched pot stops every hold, cycle, Run and move), so the gap is never crossed under power.
 MAX_BODY = 65536  # bytes accepted in a POST body
 MOTION_CAL_PATH = os.path.expanduser("~/NereusData/UrchinCam/motion_cal.json")  # learned brake leads, kept across restarts
 # Move methods. "simple": drive at the set speed, brake one learned lead before the target (lead_s).
@@ -173,10 +174,10 @@ class JogController:
         """Jog page: "step" by `value` deg, "goto" `value` deg (the counted angle since zero), or "wipe": out by
         `value` deg and back to the start, `cycles` times, `pause_s` apart. Closed loop on the pot angle."""
         with self.lock:
-            if not self.pot or self.angle is None:
+            if not self.pot:
                 raise ValueError("no pot reading")
             if not self.pot.ok:
-                raise ValueError("the pot is in its dead zone (angle unknown): turn the arm back onto the track")
+                raise ValueError(self._pot_refusal(user=True))
             if self.state != "asleep" or self.cycle or self.run or self.move or self.moves:
                 raise ValueError("stop the motor first")
             if method not in METHODS:
@@ -226,6 +227,8 @@ class JogController:
             raise ValueError(action)
         with self.lock:
             now = self.clock()
+            if action != "stop" and self._pot_refusal():  # ruling 1, rule 6: nothing starts on an untrusted pot
+                raise ValueError(self._pot_refusal(user=True))
             if action == "cycle":
                 if self.state != "asleep" or self.cycle or self.run:
                     raise ValueError("stop the motor before a wipe cycle")
@@ -242,6 +245,31 @@ class JogController:
                 self.want = action
                 self.want_duty = min(DUTY[1], max(DUTY[0], float(duty if duty is not None else 1.0)))
             self.last_hb = now
+
+    def _pot_refusal(self, user=False):
+        """Why the pot stops or refuses a drive (PE 018's ruling 1, rule 6), or None. With no pot (--pot-every 0)
+        the bench runs open loop as before and nothing is refused."""
+        if not self.pot or self.pot.ok:
+            return None
+        why = f"pot reading unreliable ({self.pot.state}{': ' + self.pot.why if self.pot.why else ''})"
+        return f"{why}: {potmod.NEXT[self.pot.state]}" if user else why
+
+    def confirm_pot(self):
+        """The operator's word that the arm is on the track (ruling 1, rule 5): taken only with the bridge asleep and
+        nothing running or queued; the pot checks the reading is still and inside SAFE_V. The zero is kept."""
+        with self.lock:
+            if not self.pot:
+                raise ValueError("no pot")
+            if self.state != "asleep" or self.want != "stop" or self.cycle or self.run or self.move or self.moves:
+                raise ValueError("stop the motor first: the confirm is taken only with nothing running or queued")
+            now = self.clock()
+            was = self.pot.state
+            self.pot.confirm(now)
+            self.angle = self.pot.angle
+            if was != "trusted":
+                self._event(now, f"pot confirmed on the track by the operator at {self.pot.last_v:.3f} V "
+                                 f"(was {was}); zero kept")
+            return {"pot_state": self.pot.state, "angle": self.angle}
 
     def heartbeat(self):
         with self.lock:
@@ -329,13 +357,24 @@ class JogController:
                 if now - self.last_hb > WATCHDOG_S:
                     self._end_cycle(now, "lost contact with the page", False)
                 elif now >= c["pause_until"]:
-                    c["i"] += 1
-                    c["stage"] = self.want = "fwd"
-                    self.cycle_i = c["i"]
-                    self._drive(now, "fwd")
+                    if self._pot_refusal():
+                        self.want = "stop"
+                        self._end_cycle(now, self._pot_refusal(), False)
+                    else:
+                        c["i"] += 1
+                        c["stage"] = self.want = "fwd"
+                        self.cycle_i = c["i"]
+                        self._drive(now, "fwd")
             elif (self.state == "asleep" and not self.move and self.want in ("fwd", "rev")
                   and now - self.last_hb <= WATCHDOG_S):
-                self._drive(now, self.want, self.want_duty)
+                why = self._pot_refusal()
+                if why:  # e.g. the pot latched during the brake between a cycle's strokes
+                    self._event(now, f"{self.want} not started: {why}")
+                    self.want = "stop"
+                    if self.cycle:
+                        self._end_cycle(now, why, False)
+                else:
+                    self._drive(now, self.want, self.want_duty)
 
             if self.state in ("fwd", "rev"):
                 self.sampler.zero_key = self.state
@@ -457,17 +496,18 @@ class JogController:
         return v
 
     def _drive_guard(self, now, fresh):
-        """Outside moves (moves have their own checks): no motion while drawing current -> stop; manual holds also
-        stop at the ends of the pot's safe track and when the pot reading is untrusted (dead zone)."""
-        if self.state not in ("fwd", "rev") or self.move or not self.pot or self.angle is None:
+        """Outside moves (moves have their own checks): an untrusted pot stops holds, timed cycles and Runs (ruling 1,
+        rule 6); no motion while drawing current -> stop; manual holds also stop at the ends of the pot's safe track."""
+        if self.state not in ("fwd", "rev") or self.move or not self.pot:
             return
+        why = self._pot_refusal()
+        if why:
+            return self._stop(now, why)
         if self.dp_raw is None:
             self.dp_raw, self.dp_t = self.pot_v, now
         if fresh and self.pot.ok and self.pot_v is not None and abs(self.pot_v - self.dp_raw) >= RAW_MOVE_V:
             self.dp_raw, self.dp_t = self.pot_v, now
         if not self.cycle:  # a hold (Drive or Jog page)
-            if not self.pot.ok:
-                return self._stop(now, "pot reading unreliable (dead zone?)")
             room = self.pot.room_deg()
             up = (self.state == "fwd") == (self.pot.cal["sign"] > 0)  # forward raises the pot voltage
             margin = max(TRACK_END_DEG, abs(self._speed_dps()) * TRACK_END_S)
@@ -571,7 +611,7 @@ class JogController:
             if self.state not in ("fwd", "rev"):  # a safety stop already braked and canceled; nothing to do
                 return
             if not self.pot.ok:
-                return self._stop(now, f"{m['label']}: pot reading unreliable (dead zone?)")
+                return self._stop(now, f"{m['label']}: {self._pot_refusal()}")
             sign = self.pot.cal["sign"] * (1 if self.state == "fwd" else -1)  # forward raises the pot voltage
             remaining = (m["target"] - self.angle) * sign
             if fresh:
@@ -619,8 +659,8 @@ class JogController:
                 self.lead_s = new
             self._save_motion_cal()
         if not self.pot.ok:
-            self._event(now, f"{m['label']}: stopped in the pot's dead zone, angle unknown")
-            return self._cancel_moves(now, "pot in its dead zone")
+            self._event(now, f"{m['label']}: stopped with the pot not trusted ({self.pot.state}), angle unknown")
+            return self._cancel_moves(now, "pot not trusted")
         if abs(err) <= TOL_DEG or (m["driven"] and (not m["correct"] or m["tries"] >= MAX_TRIES)):
             self._event(now, f"{m['label']}: at {self.angle:.1f}° (target {m['target']:.1f}°, "
                              f"error {err:+.1f}°{', ' + str(m['tries']) + ' correction(s)' if m['tries'] else ''})")
@@ -696,6 +736,8 @@ class JogController:
                     "angle": None if self.angle is None else round(self.angle, 2), "pot_v": self.pot_v,
                     "pot_errors": self.pot_errors, "pot_cal": dict(self.pot.cal) if self.pot else None,
                     "pot_ok": self.pot.ok if self.pot else None, "room": self.pot.room_deg() if self.pot else None,
+                    "pot_state": self.pot.state if self.pot else None, "pot_why": self.pot.why if self.pot else None,
+                    "pot_next": potmod.NEXT[self.pot.state] if self.pot else None,
                     "lead_s": round(self.lead_s, 3),
                     "leads": {f"{'+' if k[0] > 0 else '-'}{k[1]}": round(v, 3) for k, v in self.leads.items()},
                     "loop": self.loop.summary(),
@@ -1003,6 +1045,8 @@ def make_handler(ctrl, extra, runs_root=br.RUNS_ROOT, hosts=None):
                     return self._send(200, json.dumps(ctrl.set_settings(body)))
                 elif self.path == "/pot/zero":
                     return self._send(200, json.dumps(ctrl.zero_angle()))
+                elif self.path == "/pot/confirm":
+                    return self._send(200, json.dumps(ctrl.confirm_pot()))
                 elif self.path == "/pot/flip":
                     return self._send(200, json.dumps(ctrl.flip_angle()))
                 elif self.path == "/api/run/start":

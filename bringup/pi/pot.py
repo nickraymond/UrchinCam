@@ -5,19 +5,24 @@ jumping from 3.35 V back to 0 at the end of its track. 11 hand turns of ~90 deg 
 (0.82-1.07 V), so DEG_PER_V = 98.3 (about +-10 %), and the track covers ~330 deg; the ~30 deg rest is a gap, inferred
 on the assumption that a full turn is 360 deg. Readings in the gap are not trustworthy.
 
-Unwrapping: a step of more than half a turn between two readings is taken as crossing the gap, so the angle keeps
-counting through it instead of jumping by a full turn.
-
-The dead zone (cam02 11/15, ~/NereusData/UrchinCam/2026-11-15_jog_*): past 3.35 V the wiper reads exactly 0 V (on the
-end terminal) or floats near 0.57 V (touching nothing; unused ADC inputs float at ~0.57 V too). Both look like real
-track positions, so a reading that jumps further than the shaft can turn between two reads is held as unreliable
-(`ok` False) until three readings in a row agree again. Moves refuse targets outside SAFE_V.
-
-Away from the track ends, three readings that form a possible path (each step no faster than MAX_DPS) are also
-trusted again (and anywhere outside FLOAT_V when they keep going one way), so a move doesn't stop when the control loop stalls (cam02 11/15: a 51 ms gap, the shaft turned 14 deg
-in it). Callers stamp readings with when the sample was taken (`t`), not when Python got to it.
+Trust (PE 018's ruling 1, ~/NereusData/ops/pe_specs/RULINGS_urchincam_pr1_2026-11-15.md @ 09a395d1c56a). In the ~30 deg
+gap past the track the wiper touches nothing and floats anywhere from 0.08 to 1.22 V (QE 019, cam02 11/15 jog_194426),
+overlapping real track voltages, so no reading can show the arm is out of the gap. What a reading can show is that the
+arm had no time to reach it. Three states; `ok` is True only in "trusted":
+  - trusted: each reading keeps trust only if the gap is out of reach (reach = MAX_DPS x time since the last trusted
+    reading + REACH_PAD_DEG, less than that reading's distance to the nearer track end), the reading is inside SAFE_V
+    and its step from the last trusted reading is within reach;
+  - suspect: the gap is out of reach but the reading fails the step or SAFE_V test: dropped, the last trusted reading
+    stays; a later reading that passes makes the pot trusted again (no other path does);
+  - latched: any reading that arrives with the gap within reach, and every start. Only the operator's confirm
+    (`confirm`) leaves it: the arm still (every reading of the last CONFIRM_S within CONFIRM_BAND_V) and inside SAFE_V.
+Limits (each pinned by a test): the confirm is the operator's word, so one given with the arm in the gap while the float
+sits still inside SAFE_V is accepted; and the proof assumes the arm never turns faster than MAX_DPS (a faster turn by
+hand can carry it into the gap unseen). No turn counting: the angle never crosses the gap.
+Callers stamp readings with when the sample was taken (`t`), not when Python got to it.
 """
 
+import collections
 import json
 import os
 
@@ -26,18 +31,18 @@ POT_FSR = 4.096  # the pot spans 0-3.35 V
 DEFAULT_CAL = {"deg_per_v": 98.3, "sign": 1, "zero_v": None,
                "source": "cam02 11/13: 11 hand turns of ~90 deg, median 0.916 V (0.82-1.07 V), about +-10 %"}
 CAL_PATH = os.path.expanduser("~/NereusData/UrchinCam/pot_cal.json")
-SAFE_V = (0.10, 3.25)  # moves stay inside this part of the track (it reads 0-3.35 V; the dead zone is past both ends)
-MAX_DPS = 600.0  # the shaft can't turn faster than this (cam02 full speed ~325 deg/s); a faster jump is a bad reading
-AGREE_V = 0.03  # readings agreeing within this, three in a row, are trusted again after a bad one...
-END_V = 0.35  # ...but after leaving the track at one end, only near an end: the floating ~0.57 V is steady too
-TRACK_V = 3.35
-MOVE_V = 0.02  # ...or when three readings form a possible path that keeps going one way by at least this much:
-# the shaft coming out of the dead zone while still turning (QE 019, N1: a timed cycle never re-trusted at speed)...
-FLOAT_V = (0.45, 0.85)  # ...outside the band the floating wiper wanders in: it drifts 20-30 mV one way on its own
-# (QE 019, N2: cam02 11/15 jog_194426 t=908.8, 0.591-0.619 V). NOT a full fix: recorded floats reach 0.08-1.22 V
-# (jog_194426 t=1168.2: 0.19 V trusted for 30 readings, motor asleep; QE 019 @ 8b86874), so the float is still
-# trusted outside this band. The shaft leaves the gap
-# near 0 V or 3.35 V, so it is trusted before it reaches the band.
+SAFE_V = (0.10, 3.25)  # trusted readings and move targets stay inside this part of the track (it reads 0-3.35 V)
+TRACK_V = 3.35  # the track's top end; the bottom end is 0 V. The gap is past both.
+MAX_DPS = 600.0  # the shaft can't turn faster than this (cam02 full speed ~325 deg/s): the reach of the proof
+REACH_PAD_DEG = 3.0  # added to the reach (reading noise and timing)
+CONFIRM_S = 0.3  # the operator's confirm needs every reading of this long still...
+CONFIRM_BAND_V = 0.005  # ...within this (= jog_server.RAW_MOVE_V; PE 018's reference numbers for the confirm)
+NEXT = {
+    "trusted": "",
+    "suspect": "a reading was dropped as impossible; the last good angle is held",
+    "latched": "angle unknown (the arm may be in the pot's gap): turn the arm by hand onto the track, well away from "
+               "both ends, hold it still, then press 'The arm is on the track'",
+}
 
 
 def load_cal(path=CAL_PATH):
@@ -62,59 +67,70 @@ class PotAngle:
     def __init__(self, cal=None, path=None):
         self.cal = dict(cal or DEFAULT_CAL)
         self.path = path
-        self.turns = 0  # full turns counted across the gap since the last zero
-        self.last_v = None
+        self.last_v = None  # last trusted reading
         self.last_t = None
-        self.angle = None
-        self.ok = True  # False while readings are unreliable (dead zone)
-        self.suspect = []  # (volts, t) of readings since the last trusted one
+        self.angle = None  # from the last trusted reading
+        self.state = "latched"  # every start is latched (ruling 2)
+        self.why = "server started"
+        self.recent = collections.deque(maxlen=400)  # (t, volts) of every reading, for the confirm
+        self.raw_v = None  # latest reading, trusted or not
 
     @property
-    def period_v(self):
-        return 360.0 / self.cal["deg_per_v"]  # volts one full turn would span if the track had no gap
+    def ok(self):
+        return self.state == "trusted"
 
-    def _turn_step(self, v):
-        step = v - self.last_v
-        return 1 if step < -self.period_v / 2 else -1 if step > self.period_v / 2 else 0
+    def reach_deg(self, t):
+        return MAX_DPS * max(t - self.last_t, 0.0) + REACH_PAD_DEG
 
-    def update(self, v, t=None):
-        """`t` (seconds) enables the plausibility check; without it every reading is trusted (desk tests)."""
-        if self.last_v is not None and t is not None and self.last_t is not None:
-            dt = max(t - self.last_t, 0.005)
-            k = self._turn_step(v)
-            jump_deg = abs(v + k * self.period_v - self.last_v) * self.cal["deg_per_v"]
-            # once unreliable, stay so until re-trusted below (a long stay would make any jump look "plausible")
-            if not self.ok or jump_deg > MAX_DPS * dt + 3.0:
-                self.suspect.append((v, t))
-                near_end = lambda x: x < END_V or x > TRACK_V - END_V
-                last3 = [x for x, _ in self.suspect[-3:]]
-                agree = len(self.suspect) >= 3 and max(last3) - min(last3) <= AGREE_V
-                possible = len(self.suspect) >= 3 and all(
-                    abs(self.suspect[i][0] - self.suspect[i - 1][0]) * self.cal["deg_per_v"]
-                    <= MAX_DPS * max(self.suspect[i][1] - self.suspect[i - 1][1], 0.005) + 3.0
-                    for i in (-2, -1))
-                path = possible and not any(near_end(x) for x in last3)
-                steps = [last3[1] - last3[0], last3[2] - last3[1]] if len(last3) == 3 else []
-                moving = (possible and abs(last3[2] - last3[0]) >= MOVE_V
-                          and (all(d > 0 for d in steps) or all(d < 0 for d in steps))
-                          and not any(FLOAT_V[0] < x < FLOAT_V[1] for x in last3))
-                if ((agree and (near_end(v) or not near_end(self.last_v))) or (path and not near_end(self.last_v))
-                        or moving):
-                    self.suspect = []  # out of the dead zone, settled after a fast hand turn, or a stall: trust it
-                else:
-                    self.ok = False
-                    return self.angle  # hold the last good angle
-            else:
-                self.suspect = []
-        self.ok = True
-        if self.last_v is not None:
-            self.turns += self._turn_step(v)
-        self.last_v, self.last_t = v, t
-        if self.cal["zero_v"] is None:  # first reading after a fresh install: call it 0 deg
-            self.cal["zero_v"] = v
-        u = v + self.turns * self.period_v
-        self.angle = self.cal["sign"] * (u - self.cal["zero_v"]) * self.cal["deg_per_v"]
+    def end_deg(self):
+        """Distance from the last trusted reading to the nearer track end."""
+        return min(self.last_v, TRACK_V - self.last_v) * self.cal["deg_per_v"]
+
+    def update(self, v, t):
+        self.raw_v = v
+        self.recent.append((t, v))
+        if self.state == "latched":
+            return self.angle
+        reach = self.reach_deg(t)
+        if reach >= self.end_deg():
+            self.state, self.why = "latched", f"the gap was within reach ({reach:.0f}°) at {v:.3f} V"
+            return self.angle
+        step = abs(v - self.last_v) * self.cal["deg_per_v"]
+        if SAFE_V[0] <= v <= SAFE_V[1] and step <= reach:
+            self.state, self.why = "trusted", ""
+            self._trust(v, t)
+        else:
+            self.state = "suspect"
+            self.why = (f"{v:.3f} V is outside the safe track" if not SAFE_V[0] <= v <= SAFE_V[1]
+                        else f"a {step:.0f}° step in {max(t - self.last_t, 0.0) * 1000:.0f} ms")
         return self.angle
+
+    def _trust(self, v, t):
+        self.last_v, self.last_t = v, t
+        if self.cal["zero_v"] is None:  # first trusted reading after a fresh install: call it 0 deg
+            self.cal["zero_v"] = v
+        self.angle = self.cal["sign"] * (v - self.cal["zero_v"]) * self.cal["deg_per_v"]
+
+    def confirm(self, now):
+        """The operator's word that the arm is on the track: latched or suspect -> trusted. Keeps the zero.
+        Raises ValueError with the reason when refused."""
+        if self.ok:
+            return
+        if not self.recent or now - self.recent[-1][0] > CONFIRM_S:
+            raise ValueError("no recent pot reading")
+        t, v = self.recent[-1]
+        if not SAFE_V[0] <= v <= SAFE_V[1]:
+            raise ValueError(f"the pot reads {v:.3f} V, outside the safe track ({SAFE_V[0]}-{SAFE_V[1]} V): turn "
+                             f"the arm further onto the track")
+        since = [i for i, (tt, _) in enumerate(self.recent) if tt <= now - CONFIRM_S]
+        if not since:
+            raise ValueError(f"not enough readings yet: hold the arm still for {CONFIRM_S:g} s")
+        vals = [x for _, x in list(self.recent)[since[-1]:]]
+        if max(vals) - min(vals) > CONFIRM_BAND_V:
+            raise ValueError(f"the reading is moving ({(max(vals) - min(vals)) * 1000:.0f} mV in {CONFIRM_S:g} s): "
+                             f"hold the arm still")
+        self.state, self.why = "trusted", ""
+        self._trust(v, t)
 
     def room_deg(self):
         """Degrees the angle can still go up and down before leaving SAFE_V (None until there's a reading)."""
@@ -127,10 +143,10 @@ class PotAngle:
         return {"plus": round(down_v * k, 1), "minus": round(up_v * k, 1)}
 
     def zero_here(self):
-        if self.last_v is not None:
-            self.cal["zero_v"] = self.last_v
-            self.turns = 0
-            self.angle = 0.0
+        if not self.ok:
+            raise ValueError("the pot is not trusted: confirm the arm is on the track first")
+        self.cal["zero_v"] = self.last_v
+        self.angle = 0.0
         self._save()
         return dict(self.cal)
 

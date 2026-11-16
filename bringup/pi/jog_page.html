@@ -131,6 +131,11 @@ ul.events li:first-child { border-top: 0; }
       <div class="stat"><div class="k">Speed</div><div class="v"><span id="rpm">—</span> <small>RPM</small></div></div>
       <div class="btns"><button id="b-zero">Zero angle here</button><button id="b-flip">Flip direction</button></div>
     </div>
+    <div style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <span class="pill" id="pot-pill">pot —</span>
+      <button id="b-confirm" hidden>The arm is on the track</button>
+      <span class="note" id="pot-next"></span>
+    </div>
     <canvas id="aplot"></canvas>
     <div class="note" id="pot-note">Shaft angle from the pot (degrees, same time window as the current plot).</div>
   </section>
@@ -224,6 +229,13 @@ function render() {
       $("spd").textContent = dps.toFixed(0); $("rpm").textContent = (dps / 6).toFixed(1);
     }
   }
+  const ps = st.pot_state;  // PE 018 ruling 1: which state the pot is in and what to do next
+  $("pot-pill").textContent = ps ? "pot " + ps : "no pot";
+  $("pot-pill").className = "pill " + (ps === "trusted" ? "ok" : ps ? "bad" : "");
+  if (performance.now() > potMsgUntil)
+    $("pot-next").textContent = ps && ps !== "trusted" ? (st.pot_why ? st.pot_why + ". " : "") + st.pot_next : "";
+  $("b-confirm").hidden = ps !== "latched" && ps !== "suspect";
+  $("b-confirm").disabled = st.state !== "asleep";
   if (st.pot_cal) $("pot-note").textContent = `Shaft angle from the pot: ${st.pot_cal.deg_per_v} °/V (${st.pot_cal.source}). ` +
     `Pot ${st.pot_v == null ? "—" : st.pot_v.toFixed(3) + " V"} · read errors ${st.pot_errors}. Same time window as the current plot.`;
   const z = st.zero_mv || {};
@@ -298,7 +310,15 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) stopA
 window.addEventListener("pagehide", stopAll);
 
 // ---------- pot ----------
-$("b-zero").addEventListener("click", () => post("/pot/zero"));
+$("b-zero").addEventListener("click", () => potPost("/pot/zero"));
+$("b-confirm").addEventListener("click", () => potPost("/pot/confirm"));
+let potMsgUntil = 0;
+function potPost(path) {  // shows a refusal (e.g. the arm still moving) under the pot state for a few seconds
+  fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    .then(async r => { if (!r.ok) { $("pot-next").textContent = (await r.json().catch(() => ({}))).error || r.status;
+      potMsgUntil = performance.now() + 4000; } })
+    .catch(() => {});
+}
 $("b-flip").addEventListener("click", () => post("/pot/flip"));
 
 // ---------- settings ----------
