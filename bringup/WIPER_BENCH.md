@@ -149,8 +149,9 @@ the 0.5 A cut-off, once the float wanders (20-30 mV, as recorded), by mode (desk
 - a move: a suspect reading, when the float jumps further than the reach; a slower wander counts as motion, and then
   the move's own timeout (|error| / (300 deg/s x speed) x 4 + 2 s, at most 60 s);
 - a timed cycle or a Run: nothing. The max run time does not apply (the stroke time replaces it), so every stroke
-  drives its full stroke time (up to 30 s; up to 100 cycles of two strokes) and the cycle ends "complete". Whether
-  that may stand is PE 018's call (open item 9).
+  drives its full stroke time (up to 30 s; up to 100 cycles of two strokes) and the cycle ends "complete". PE 018's
+  ruling 4 (`~/NereusData/ops/pe_specs/RULINGS_urchincam_pr1_2026-11-17.md` @ c9e4d3b4a9a5): this limit
+  stands for this PR, with no new bound in the code (open item 9).
 Whether this motor's stall current reaches 0.5 A is not known (stage 9 not run). (2) The proof assumes the arm never
 turns faster than 600 deg/s; a faster turn by hand can carry it into the gap unseen. Near the ends the pot latches
 instead of guessing: the reach grows with the time between pot reads. On cam02 that was 19 ms (median) with the motor
@@ -158,6 +159,9 @@ asleep and 10 ms while driving (`from_cam02/2026-11-15_jog_194426`), a reach of 
 of 25-30 ms in the 11/15 1:16-1:34 PM runs (18-21 deg) and idle reads up to 150 ms apart. So an arm resting within
 about 14-21 deg (0.15-0.21 V) of a track end latches at the next reading, a confirm there doesn't hold, and a rare slow
 read can latch an arm resting further in.
+
+Operating rule (ruling 4): look at the arm before every confirm, and watch the first stroke after it. An open page is
+not an operator. A wrong confirm shows in that stroke: the arm does not wipe.
 
 Getting back from the dead zone, and after every restart: the pages show the pot's state and what to do next. Put
 the motor to sleep (STOP), turn the shaft by hand onto the track, well away from both ends, hold it still, and press
@@ -219,7 +223,9 @@ reproduce: QE 019 found 3 in that run's window in the later saved snapshot
 2. The idle pot read (between moves) is sometimes slow: up to 150 ms apart on 11/15 (QE 019 @ 536b720). Moves use
    the streamed path. A slow idle read can latch a resting arm (limits above) and refuse a confirm (press again).
 3. The 21 deg pot jump above.
-4. Stall test (card stage 9) not run yet; motor part numbers and stall current unknown. Ethernet (stage 5) 5.1-5.7
+4. Stall test (card stage 9) not run yet; motor part numbers and stall current unknown. The rewrite (ruling 4 b)
+   records the stall current at 100 % and at the lowest duty the bench runs timed cycles at (row 9.2 at each); PE 018
+   then rules the cut-off against duty. One motor: the numbers hold for this motor only. Ethernet (stage 5) 5.1-5.7
    passed 11/15 (test card; 5.7 run differently); 5.8 (does the random MAC change at boot) is PROPOSED, not run.
 5. Slow cycles: at 50 % the seal turns the shaft only ~30 deg/s (char run above). No cycle passes through the gap
    now (ruling 1), so this matters only for the no-motion window on the track.
@@ -233,6 +239,9 @@ reproduce: QE 019 found 3 in that run's window in the later saved snapshot
    software by ruling 1 (latch, operator's confirm); limits above. The pull-down (100 kOhm, TP6 to TP2) is ruled the
    right direction for the board but not this PR: it needs its own registered stage, QE's spec verdict and Nick's OK
    before any run with it fitted, and every calibration and zero from before the fit is void until re-measured.
+   That stage gets one more row (ruling 4 c): with the arm in the gap, over the whole gap, a confirm is refused.
 9. A jam in the gap after a wrong confirm, drawing under 0.5 A, is not stopped in a timed cycle or a Run (limits
-   above; QE 019 @ 536b720, L1). Whether a cycle or Run may drive its full stroke time there, or needs its own bound,
-   is PE 018's call.
+   above; QE 019 @ 536b720, L1). PE 018's ruling 4
+   (`~/NereusData/ops/pe_specs/RULINGS_urchincam_pr1_2026-11-17.md` @ c9e4d3b4a9a5): the limit stands for this PR,
+   no new bound; the operating rule above. Stage 9's stall currents (item 4) or the pull-down stage's confirm row
+   (item 8) close it; board card `c_urchin_jam_under_cutoff` holds it until then.
