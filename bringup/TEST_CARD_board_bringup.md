@@ -243,12 +243,18 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
   correct up to 3 times at <= 75 %), records that move in `meta.json` (`start_move`, `start_angle`), and refuses to
   start unless the arm stopped within **3 deg** of 0. No other move is allowed between a restart and stroke 1. The
   wipes are relative to where the arm stopped.
-- **Independent check (10.4):** before the training run, with the arm at 0 deg after its start move, Nick draws the
-  mark on the mount (a line on the arm against a line on the housing). At the end of every run the tool sends the arm
-  back to 0 the same way (`go to 0`, recorded in `summary.json` `end_move` and `end_angle`, not scored), then asks
-  for Nick's reading of the arm against the mark, by eye with a printed protractor scale, and writes it to
-  `summary.json` `zero_check_deg`. It is scored after runs 1-3 and the last restart set; a missing reading (`null`)
-  there fails 10.4.
+- **Independent check (10.4):** it checks the pot's angle against a mark that doesn't depend on the pot, so a miss of
+  the return move (on 11/15 one `go to 0` ended 3.93 deg off after 3 corrections, `WIPER_BENCH.md` open item 7) does
+  not count against it. **The mark:** the training run ends with its return move; while the tool waits at its zero
+  prompt, Nick draws the mark on the mount (a line on the arm against a line on the housing) where the arm stands, and
+  answers blank. That run's `summary.json` `end_angle` is the mark's pot angle (`mark_deg`), written beside the mark
+  and in 10.4's Result. **Each reading:** after a run whose wipes finished, the tool sends the arm back to 0 the same
+  way (`go to 0`, recorded in `summary.json` `end_move` and `end_angle`) and asks for Nick's reading of the arm against
+  the mark, by eye with a printed protractor scale, positive when the arm is past the mark in the + angle direction;
+  it writes it to `summary.json` `zero_check_deg`. The tool asks only when it runs in a terminal, so stage 10 runs it
+  in one; a run whose wipes didn't finish is a failed run and gets no reading. **Scored:** the 10.4 error =
+  `zero_check_deg` - (`end_angle` - `mark_deg`), after runs 1-3 and the last restart set; a missing reading (`null`)
+  there fails 10.4. Decided before the data.
 - **Tool:** `bringup/tools/wipe_repeat.py --host <pi>:8765 --motor "<part #>" --expect-sha <sha> --wipes <n> --out
   <dir>`; its defaults are the run conditions above. It writes meta.json, moves.json, events.json (every bench event
   in the run), samples.csv, loop.json and summary.json, the record first before the return move and again after it.
@@ -268,7 +274,7 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
 | 10.1 | 3 runs x 30 wipes (60 strokes each), each after a restart | each run: at least 58 of 60 strokes within 3 deg (`summary.json` `within_bar`); no stroke over 5 deg (`over_worst` 0) | |
 | 10.2 | 10 restarts x 3 wipes: first stroke after each restart | `first_stroke_deg` within +-3 deg in all 10 | |
 | 10.3 | Safety and conditions, every run: the training run, runs 1-3 and each of the 10 restart sets | `summary.json`: `complete` true (`strokes` = `strokes_expected`, no `fault`); `stops` empty: any entry fails the run (cut-off, no motion, heartbeat, pot, track end, cancelled move, and the I2C or PWM re-create messages the tool also counts); `cutoff_ok` true (0.5 A / 250 ms before and after); `conditions_ok` true (sweep 90, 100 %, 0.3 s, start 0); `throttled_before` and `throttled_after` 0x0; `failed` null. A run whose `summary.json` has `failed` set, or that has no `summary.json`, is a failed run, not a rerun | |
-| 10.4 | Independent zero check after runs 1-3 and the last restart set | `zero_check_deg` within +-3 deg | |
+| 10.4 | Independent zero check after runs 1-3 and the last restart set | the 10.4 error (`zero_check_deg` - (`end_angle` - `mark_deg`), defined above) within +-3 deg in all 4 | |
 | 10.5 | Energy per wipe | record median and min-max per run (no bar) | |
 | 10.6 | Control-loop pauses, `loop.json` per run | record (no bar) | |
 
