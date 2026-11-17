@@ -141,19 +141,30 @@ trusted pot readings count as motion. A timed cycle or Run can no longer pass th
 first and the cycle stops.
 
 Limits of the pot's trust (ruling 1, each pinned by a desk test): (1) the confirm is the operator's word. Given with
-the arm in the gap while the float sits still inside 0.10-3.25 V, it is accepted; a jam there is then stopped by the
-no-motion stop only while the float holds within 5 mV, and once it wanders (20-30 mV, as recorded) only the 0.5 A
-cut-off or the max run time stops it. (2) The proof assumes the arm never turns faster than 600 deg/s; a faster turn
-by hand can carry it into the gap unseen. Near the ends the pot latches instead of guessing: on cam02 the pot was read
-every 19 ms (median) with the motor asleep and every 10 ms while driving (`from_cam02/2026-11-15_jog_194426`), a reach
-of about 14 and 9 deg, so an arm resting within about 14 deg (0.15 V) of a track end latches at the next reading and a
-confirm there doesn't hold.
+the arm in the gap while the float sits still inside 0.10-3.25 V, it is accepted (QE 019 found two such still windows
+with the motor asleep in `jog_194426`, t = 1043.8 and 1241.6 s). What then stops a jam in the gap that draws less than
+the 0.5 A cut-off, once the float wanders (20-30 mV, as recorded), by mode (desk tests g):
+- a hold: the no-motion stop while the float holds within 5 mV; after that only the max run time (default 10 s, at
+  most 60 s);
+- a move: a suspect reading, when the float jumps further than the reach; a slower wander counts as motion, and then
+  the move's own timeout (|error| / (300 deg/s x speed) x 4 + 2 s, at most 60 s);
+- a timed cycle or a Run: nothing. The max run time does not apply (the stroke time replaces it), so every stroke
+  drives its full stroke time (up to 30 s; up to 100 cycles of two strokes) and the cycle ends "complete". Whether
+  that may stand is PE 018's call (open item 9).
+Whether this motor's stall current reaches 0.5 A is not known (stage 9 not run). (2) The proof assumes the arm never
+turns faster than 600 deg/s; a faster turn by hand can carry it into the gap unseen. Near the ends the pot latches
+instead of guessing: the reach grows with the time between pot reads. On cam02 that was 19 ms (median) with the motor
+asleep and 10 ms while driving (`from_cam02/2026-11-15_jog_194426`), a reach of about 14 and 9 deg; QE 019 found a p90
+of 25-30 ms in the 11/15 1:16-1:34 PM runs (18-21 deg) and idle reads up to 150 ms apart. So an arm resting within
+about 14-21 deg (0.15-0.21 V) of a track end latches at the next reading, a confirm there doesn't hold, and a rare slow
+read can latch an arm resting further in.
 
 Getting back from the dead zone, and after every restart: the pages show the pot's state and what to do next. Put
 the motor to sleep (STOP), turn the shaft by hand onto the track, well away from both ends, hold it still, and press
 "The arm is on the track" (`/pot/confirm`). It is taken only with the bridge asleep, nothing running or queued, the
-reading inside 0.10-3.25 V and every reading of the last 0.3 s within 5 mV; it keeps the zero and is logged as an
-event. Zero here needs a trusted pot. When the service stops it puts the bridge to sleep and releases the pins; the MP6550's
+reading inside 0.10-3.25 V and every reading of the last 0.3 s within 5 mV, with no two readings in that window
+more than 0.1 s apart and the newest no older than that; it keeps the zero (a fresh install's first confirm sets the
+zero and saves it) and is logged as an event. Zero here needs a trusted pot. When the service stops it puts the bridge to sleep and releases the pins; the MP6550's
 internal pull-downs (datasheet p. 3) then hold IN1/IN2 low, so it can't drive (nSLEEP may still read high from the
 Pi's default pull, as seen at boot: the bridge coasts). So `jog-bench.service` has no `ExecStopPost`.
 
@@ -163,7 +174,7 @@ Pi's default pull, as seen at boot: the bridge coasts). So `jog-bench.service` h
 |---|---|---|
 | Pot read followed motor current | ADS1115 ignores OS=1 written in continuous mode; register kept VISEN, read at 4x scale (0.146 V = 36.6 mV x 4) | power down, then start (`urchin_hw.ADS1115.single_shot`) |
 | 0 mA below 100 % speed | gpiozero device swaps + LED PWM: lgpio queues `tx_pwm` per GPIO and an endless entry never ends (29 dropouts in 25 trials) | `LgpioBackend`: pins claimed once, PWM stopped and idle before each change (0 in 25). Stress output printed to the session only; the test script was `/tmp/pwm_stress.py` on cam02 |
-| Wipe stopped mid-move | 51 ms loop stall mis-stamped the next pot reading as a 14 deg jump in <1 ms | stamp readings at step start; re-trust a possible path |
+| Wipe stopped mid-move | 51 ms loop stall mis-stamped the next pot reading as a 14 deg jump in <1 ms | stamp readings at step start (the old re-trust of a possible path is gone since ruling 1: such a jump now reads suspect and stops a move) |
 | Brake lead grew to ~0.14 s | slow correction moves taught it (overshoot / low speed) | learn only from first strokes braked at >= 100 deg/s |
 | Control-loop pauses 15-56 ms | `vcgencmd` subprocess and SD writes in the loop; 5 ms interpreter-lock switch; crash-looping services | polling + logging off-loop, 0.5 ms switch, shared status; services below |
 | First stroke after a restart misses 4-7 deg | learned brake lead starts untrained (QE 019) | leads saved to `motion_cal.json` and reloaded (not yet re-run on hardware) |
@@ -205,18 +216,23 @@ reproduce: QE 019 found 3 in that run's window in the later saved snapshot
 
 1. The pre-registered repeat (test card stage 10, Nick's OK first), on the rigid printed mount: how much of the
    ~1.1 deg scatter is mechanical, and whether saved leads fix the first stroke.
-2. The idle pot read (between moves) sometimes stalls up to 56 ms; moves use the streamed path and aren't affected.
+2. The idle pot read (between moves) is sometimes slow: up to 150 ms apart on 11/15 (QE 019 @ 536b720). Moves use
+   the streamed path. A slow idle read can latch a resting arm (limits above) and refuse a confirm (press again).
 3. The 21 deg pot jump above.
 4. Stall test (card stage 9) not run yet; motor part numbers and stall current unknown. Ethernet (stage 5) 5.1-5.7
    passed 11/15 (test card; 5.7 run differently); 5.8 (does the random MAC change at boot) is PROPOSED, not run.
 5. Slow cycles: at 50 % the seal turns the shaft only ~30 deg/s (char run above). No cycle passes through the gap
    now (ruling 1), so this matters only for the no-motion window on the track.
 6. Angle error has no external reference (a marked stop or a camera) yet.
-8. Short `go to` moves miss: from -1.28 deg, `go to 0` ended at +3.93 after 3 corrections (11/15 5:16 PM,
-   `2026-11-15_eth_soak_wipes_run2/meta.json`); the end-of-run `go to 0` from 4.5 deg ended at -1.27 after 3. A
-   correction from rest at 75 % overshoots a 1-4 deg target. Stage 10's start gate (3 deg) refused that run.
-7. The floating wiper (QE 019 N2): in the gap the wiper floats anywhere from 0.08 to 1.22 V (QE 019) and drifts
+7. Short `go to` moves miss: from -1.28 deg, `go to 0` ended at +3.93 after 3 corrections (11/15 5:16 PM,
+   `2026-11-15_eth_soak_wipes_run2/meta.json`, `start_move`); run 1's end-of-run `go to 0` from 1.03 deg ended at
+   -1.27 after 3 (`2026-11-15_eth_soak_wipes_run1/summary.json`, `end_move`). A correction from rest at 75 % overshoots
+   a 1-4 deg target. Stage 10's start gate (3 deg) refused run 2.
+8. The floating wiper (QE 019 N2): in the gap the wiper floats anywhere from 0.08 to 1.22 V (QE 019) and drifts
    slowly (t=1168, motor asleep: 0.55 V down to 0.08 V), overlapping real track voltages at both ends. Handled in
    software by ruling 1 (latch, operator's confirm); limits above. The pull-down (100 kOhm, TP6 to TP2) is ruled the
    right direction for the board but not this PR: it needs its own registered stage, QE's spec verdict and Nick's OK
    before any run with it fitted, and every calibration and zero from before the fit is void until re-measured.
+9. A jam in the gap after a wrong confirm, drawing under 0.5 A, is not stopped in a timed cycle or a Run (limits
+   above; QE 019 @ 536b720, L1). Whether a cycle or Run may drive its full stroke time there, or needs its own bound,
+   is PE 018's call.

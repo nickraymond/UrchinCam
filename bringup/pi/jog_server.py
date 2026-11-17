@@ -615,7 +615,7 @@ class JogController:
             sign = self.pot.cal["sign"] * (1 if self.state == "fwd" else -1)  # forward raises the pot voltage
             remaining = (m["target"] - self.angle) * sign
             if fresh:
-                # cap the speed: crossing the gap makes the angle jump, and a spike here would brake far too early
+                # cap the speed: a reading-to-reading spike in the speed estimate would brake far too early
                 speed = min(abs(self._speed_dps()), 1.5 * FULL_SPEED_DPS * self.duty)
                 approach = m["method"] == "approach" and m["tries"] == 0
                 if approach and not m.get("approaching") and remaining <= APPROACH_DEG and self.duty > APPROACH_DUTY:

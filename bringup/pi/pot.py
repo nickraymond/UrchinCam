@@ -15,7 +15,8 @@ arm had no time to reach it. Three states; `ok` is True only in "trusted":
   - suspect: the gap is out of reach but the reading fails the step or SAFE_V test: dropped, the last trusted reading
     stays; a later reading that passes makes the pot trusted again (no other path does);
   - latched: any reading that arrives with the gap within reach, and every start. Only the operator's confirm
-    (`confirm`) leaves it: the arm still (every reading of the last CONFIRM_S within CONFIRM_BAND_V) and inside SAFE_V.
+    (`confirm`) leaves it: the arm still (readings across the last CONFIRM_S, none more than CONFIRM_GAP_S apart or
+    older than that at the confirm, all within CONFIRM_BAND_V) and inside SAFE_V.
 Limits (each pinned by a test): the confirm is the operator's word, so one given with the arm in the gap while the float
 sits still inside SAFE_V is accepted; and the proof assumes the arm never turns faster than MAX_DPS (a faster turn by
 hand can carry it into the gap unseen). No turn counting: the angle never crosses the gap.
@@ -37,6 +38,9 @@ MAX_DPS = 600.0  # the shaft can't turn faster than this (cam02 full speed ~325 
 REACH_PAD_DEG = 3.0  # added to the reach (reading noise and timing)
 CONFIRM_S = 0.3  # the operator's confirm needs every reading of this long still...
 CONFIRM_BAND_V = 0.005  # ...within this (= jog_server.RAW_MOVE_V; PE 018's reference numbers for the confirm)
+CONFIRM_GAP_S = 0.1  # ...with no two readings in that window further apart than this, and the newest no older (QE 019
+# @ 536b720, L2: one reading 10 s old plus one new one passed). cam02 reads the idle pot every ~19 ms (median, 11/15
+# jog_194426); a rare slow read (up to 150 ms on 11/15) refuses the confirm and the operator presses again.
 NEXT = {
     "trusted": "",
     "suspect": "a reading was dropped as impossible; the last good angle is held",
@@ -116,21 +120,30 @@ class PotAngle:
         Raises ValueError with the reason when refused."""
         if self.ok:
             return
-        if not self.recent or now - self.recent[-1][0] > CONFIRM_S:
+        if not self.recent or now - self.recent[-1][0] > CONFIRM_GAP_S:
             raise ValueError("no recent pot reading")
         t, v = self.recent[-1]
         if not SAFE_V[0] <= v <= SAFE_V[1]:
             raise ValueError(f"the pot reads {v:.3f} V, outside the safe track ({SAFE_V[0]}-{SAFE_V[1]} V): turn "
                              f"the arm further onto the track")
-        since = [i for i, (tt, _) in enumerate(self.recent) if tt <= now - CONFIRM_S]
+        pts = list(self.recent)
+        since = [i for i, (tt, _) in enumerate(pts) if tt <= now - CONFIRM_S]
         if not since:
             raise ValueError(f"not enough readings yet: hold the arm still for {CONFIRM_S:g} s")
-        vals = [x for _, x in list(self.recent)[since[-1]:]]
+        win = pts[since[-1]:]  # the last reading at or before the window's start, then every one in it
+        gap = max(b[0] - a[0] for a, b in zip(win, win[1:]))  # >= 2 readings: the newest is < CONFIRM_GAP_S old
+        if gap > CONFIRM_GAP_S:
+            raise ValueError(f"pot readings {gap * 1000:.0f} ms apart in the last {CONFIRM_S:g} s: hold the arm still "
+                             f"and press again")
+        vals = [x for _, x in win]
         if max(vals) - min(vals) > CONFIRM_BAND_V:
             raise ValueError(f"the reading is moving ({(max(vals) - min(vals)) * 1000:.0f} mV in {CONFIRM_S:g} s): "
                              f"hold the arm still")
+        fresh = self.cal["zero_v"] is None
         self.state, self.why = "trusted", ""
         self._trust(v, t)
+        if fresh:  # a fresh install's first trusted reading became the zero: keep it (QE 019 @ 536b720)
+            self._save()
 
     def room_deg(self):
         """Degrees the angle can still go up and down before leaving SAFE_V (None until there's a reading)."""

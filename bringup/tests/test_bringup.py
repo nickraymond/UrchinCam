@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pi"))
@@ -1368,6 +1369,38 @@ class TestPotTrust(unittest.TestCase):
             ctrl.confirm_pot()
         self.assertIn("stop the motor first", str(cm.exception))
 
+    def test_f_confirm_idle_check_each_term(self):
+        # QE 019 @ 536b720: five of the six terms survived mutation one at a time; each one alone refuses
+        t, ctrl = self._ctrl(confirm=False)
+        t._run_for(ctrl, 0.5)
+        for attr, busy in (("state", "brake"), ("want", "fwd"), ("cycle", {"stage": "pause"}), ("run", object()),
+                           ("move", {"phase": "settle"}), ("moves", [{"kind": "goto"}])):
+            with self.subTest(attr=attr):
+                old = getattr(ctrl, attr)
+                setattr(ctrl, attr, busy)
+                try:
+                    with self.assertRaises(ValueError) as cm:
+                        ctrl.confirm_pot()
+                    self.assertIn("stop the motor first", str(cm.exception))
+                finally:
+                    setattr(ctrl, attr, old)
+        ctrl.confirm_pot()  # and with all six idle it is taken
+        self.assertTrue(ctrl.pot.ok)
+
+    def test_d_a_latch_while_a_move_settles_cancels_the_moves(self):
+        t, ctrl = self._ctrl()
+        ctrl.request_move("wipe", 20, cycles=2, pause_s=0.3)
+        for _ in range(5000):
+            t._run_for(ctrl, 0.002)
+            if ctrl.move and ctrl.move.get("phase") == "settle":
+                break
+        self.assertEqual(ctrl.move["phase"], "settle")
+        ctrl.pot.state, ctrl.pot.why = "latched", "test"
+        t._run_for(ctrl, 0.5)
+        self.assertIsNone(ctrl.move)
+        self.assertFalse(ctrl.moves)
+        self.assertTrue(any("stopped with the pot not trusted" in e["text"] for e in ctrl.events))
+
     def test_f_confirm_is_refused_outside_the_safe_track(self):
         t, ctrl = self._ctrl(confirm=False)
         t.adc.pot_u = 3.60  # on the 0 V end terminal, in the gap
@@ -1417,6 +1450,41 @@ class TestPotTrust(unittest.TestCase):
         self.assertTrue(confirmable(noise=0.0049))  # pins CONFIRM_BAND_V = 5 mV
         self.assertFalse(confirmable(noise=0.0051))
 
+    def test_f_confirm_needs_readings_across_the_window(self):
+        # QE 019 @ 536b720, L2: one reading 10 s old plus one new one passed. Every gap in the window (from the last
+        # reading at or before now - 0.3 s) must be <= CONFIRM_GAP_S = 0.1 s, and the newest reading no older
+        def confirm(times, now):
+            p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
+            for tt in times:
+                p.update(1.5, tt)
+            try:
+                p.confirm(now)
+                return "ok"
+            except ValueError as e:
+                return str(e)
+        self.assertIn("ms apart", confirm([0.0, 10.0], 10.0))  # QE's case: 10 s old + 1 new
+        dense = [round(0.02 * i, 2) for i in range(51)]  # 0-1.0 s every 20 ms
+        self.assertEqual(confirm(dense, 1.0), "ok")
+        for gap, want in ((0.099, "ok"), (0.101, "ms apart")):  # pins CONFIRM_GAP_S between readings
+            with self.subTest(gap=gap):
+                times = [tt for tt in dense if tt <= 0.8] + [round(0.8 + gap, 3), round(0.85 + gap, 3), 1.0]
+                self.assertIn(want, confirm(times, 1.0))
+        for age, want in ((0.099, "ok"), (0.101, "no recent pot reading")):  # ...and the newest reading's age
+            with self.subTest(age=age):
+                self.assertIn(want, confirm(dense, 1.0 + age))
+        self.assertIn("not enough readings", confirm([0.8, 0.85, 0.9, 0.95, 1.0], 1.0))  # only 0.2 s of readings
+
+    def test_f_confirm_on_a_fresh_install_saves_the_zero(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d))
+        path = os.path.join(d, "pot_cal.json")
+        p = pot.PotAngle(dict(pot.DEFAULT_CAL), path=path)  # zero_v None: no cal file yet
+        for i in range(36):
+            p.update(1.234, i * 0.01)
+        p.confirm(0.35)
+        self.assertEqual(pot.load_cal(path)["zero_v"], 1.234)
+        self.assertEqual(p.angle, 0.0)
+
     # --- g: the two stated limits ---
     def test_g_limit_a_confirm_in_the_gap_on_a_still_float_is_accepted(self):
         # the confirm is the operator's word: given with the arm in the gap while the float sits still inside SAFE_V
@@ -1435,6 +1503,62 @@ class TestPotTrust(unittest.TestCase):
         self.assertTrue(ctrl.pot.ok)
         t._run_for(ctrl, 1.0)
         self.assertTrue(any("max run time" in e["text"] for e in ctrl.events), [e["text"] for e in ctrl.events])
+
+    def _confirm_in_the_gap(self, **settings):
+        t, ctrl = self._ctrl(confirm=False, **settings)
+        t.adc.pot_vps, t.adc.run_a, t.adc.pot_u = 0.0, 0.30, 3.45  # jammed in the gap, 0.30 A: under the 0.5 A cut-off
+        t.adc.FLOAT_SEQ = (0.57,)
+        t._run_for(ctrl, 0.5)
+        ctrl.confirm_pot()
+        self.assertTrue(ctrl.pot.ok)
+        t.adc.FLOAT_SEQ = SimMotorADC.FLOAT_SEQ  # then the float wanders as recorded
+        return t, ctrl
+
+    def test_g_limit_a_jam_after_a_gap_confirm_cycles_and_runs_drive_their_full_time(self):
+        # QE 019 @ 536b720, L1: the max run time does not apply to a timed cycle or a Run (the stroke time replaces
+        # it), so after this wrong confirm a jam under the 0.5 A cut-off drives every stroke for its full stroke time
+        # and the cycle ends "complete". Whether it may is PE 018's call; this pins what the code does today.
+        for kind in ("cycle", "run"):
+            with self.subTest(kind=kind):
+                t, ctrl = self._confirm_in_the_gap(max_on_s=1.0)
+                seq0 = ctrl.seq
+                if kind == "cycle":
+                    ctrl.request("cycle", 2.0, 2, 0.3)
+                else:
+                    root = tempfile.mkdtemp()
+                    self.addCleanup(lambda r=root: __import__("shutil").rmtree(r))
+                    opts = os.path.join(root, "opts.json")
+                    with open(opts, "w") as f:
+                        json.dump({"motors": ["m"], "conditions": ["c"]}, f)
+                    jog_server.start_run(ctrl, {"motor": "m", "condition": "c", "stroke_s": 2.0, "cycles": 2,
+                                                "pause_s": 0.3}, {"fsr": 1.024, "sha": "x"},
+                                         os.path.join(root, "runs"), opts)
+                    run = ctrl.run
+                    self.addCleanup(lambda r=run: r.wait(5))
+                t._run_for(ctrl, 10.0)
+                self.assertTrue(ctrl.pot.ok)
+                self.assertTrue(ctrl.cycle_result["complete"], ctrl.cycle_result)
+                driven = [r for r in ctrl.buf if r["seq"] > seq0 and r["state"] in ("fwd", "rev")]
+                self.assertGreater(driven[-1]["t_s"] - driven[0]["t_s"], 2 * 2 * 2.0)  # 4 strokes x 2 s, > 1 s cap
+                texts = [e["text"] for e in ctrl.events]
+                self.assertFalse([x for x in texts if "no motion" in x or "max run time" in x or "stall" in x], texts)
+
+    def test_g_limit_a_jam_after_a_gap_confirm_a_move_stops(self):
+        # a move: the recorded wander goes suspect at the sim's read rate (a pot read every control step); a wander
+        # slow enough to stay trusted (1 mV a read, as at a slower read rate) counts as motion, so the move's own
+        # timeout stops it (|err| / (300 deg/s x duty) x 4 + 2 s, at most 60 s): 2.1 s for this 10 deg step
+        up = [round(0.570 + 0.001 * i, 3) for i in range(21)]
+        for wander, why in ((None, "pot reading unreliable"), (tuple(up + up[::-1][1:-1]), "timed out after 2 s")):
+            with self.subTest(why=why):
+                t, ctrl = self._confirm_in_the_gap()
+                if wander:
+                    t.adc.FLOAT_SEQ = wander
+                ctrl.request_move("step", 10)
+                t._run_for(ctrl, 3.0)
+                self.assertEqual(ctrl.state, "asleep")
+                self.assertIsNone(ctrl.move)
+                texts = [e["text"] for e in ctrl.events]
+                self.assertTrue(any(x.startswith("fwd stopped: step +10°: " + why) for x in texts), texts)
 
     def test_g_limit_a_turn_faster_than_max_dps_is_unseen(self):
         # the proof assumes the arm never turns faster than MAX_DPS (600 deg/s): turned by hand ~120 deg into the gap in
@@ -1479,6 +1603,21 @@ class TestPotTrust(unittest.TestCase):
                 p = trusted_pot(1.70, 0.0)
                 p.update(1.70 + (reach + margin) / 98.3, 0.35 + dt)
                 self.assertEqual(p.state, want)
+
+    def test_h_exact_equalities(self):
+        # values exact in binary floating point: reach == end distance latches; step == reach is trusted
+        def still(v, deg_per_v):
+            p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0, deg_per_v=deg_per_v))
+            for i in range(12):
+                p.update(v, i * 0.03125)
+            p.confirm(11 * 0.03125)
+            return p
+        p = still(0.5, 81.0)  # end 0.5 x 81 = 40.5 deg; reach 600 x 0.0625 + 3 = 40.5 deg
+        p.update(0.5, 11 * 0.03125 + 0.0625)
+        self.assertEqual(p.state, "latched")
+        p = still(1.5, 87.0)  # reach 600 x 0.03125 + 3 = 21.75 deg; step 0.25 x 87 = 21.75 deg
+        p.update(1.75, 11 * 0.03125 + 0.03125)
+        self.assertEqual(p.state, "trusted")
 
     def test_h_every_start_is_latched(self):
         p = pot.PotAngle(dict(pot.DEFAULT_CAL, zero_v=1.0))
@@ -1581,7 +1720,7 @@ class FakeBench:
 
     def __init__(self, sha="ad04f80", state="asleep", stop_angle=0.4, settings=None, n0=600, events_per_stroke=2):
         self.status = {"state": state, "move": None, "sha": sha, "angle": 12.0, "pot_v": 1.2, "throttled": "0x0",
-                       "lead_s": jog_server.LEAD_S, "leads": {},
+                       "lead_s": jog_server.LEAD_S, "leads": {}, "pot_state": "trusted", "pot_why": "",
                        "settings": settings or {"stall_amps": 0.5, "stall_ms": 250.0, "max_on_s": 10.0},
                        "events": []}
         self.moves = [{"n": i, "error_deg": 0.0, "energy_j": 0.7} for i in range(n0 - 499, n0 + 1)]  # 500 kept
@@ -1631,7 +1770,10 @@ class TestWipeRepeatRun(unittest.TestCase):
     """QE 019 (11/15) on tools/wipe_repeat.py: idle check, heartbeat, Ctrl-C, wipes cap, 500-move log, full events."""
 
     def go(self, bench, *extra, **kw):
-        d = tempfile.mkdtemp()
+        root = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(root))
+        d = os.path.join(root, "run")  # the tool creates it only once the bench passes its checks
+        self.last_out = d
         a = wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "ad04f80", "--wipes", "15",
                                     "--out", d, *extra])
         s = wipe_repeat.run(a, bench, d, sleep=lambda s: None, clock=kw.get("clock", time.monotonic),
@@ -1661,7 +1803,7 @@ class TestWipeRepeatRun(unittest.TestCase):
         self.assertIn("isn't idle", str(cm.exception.code))
 
     def test_refuses_another_sha(self):
-        for sha in ("29d446c", "unknown", "ad04", ""):
+        for sha in ("29d446c", "unknown", "ad04", "", "ad04f8g"):
             with self.subTest(sha=sha):
                 with self.assertRaises(SystemExit) as cm:
                     self.go(FakeBench(sha=sha))
@@ -1765,12 +1907,172 @@ class TestWipeRepeatRun(unittest.TestCase):
         s, _ = self.go(FakeBench())
         self.assertIsNone(s["zero_check_deg"])
 
+    def test_refuses_a_pot_that_is_not_trusted_before_writing_anything(self):
+        # QE 019 @ 536b720, stage 10 item 1: every restart leaves the pot latched until the operator confirms
+        b = FakeBench()
+        b.status["pot_state"], b.status["pot_why"] = "latched", "server started"
+        with self.assertRaises(SystemExit) as cm:
+            self.go(b)
+        self.assertIn("The arm is on the track", str(cm.exception.code))
+        self.assertFalse(os.path.exists(self.last_out))  # no empty folder that a rerun would refuse
+        self.assertEqual(b.posts, [])
+
+    def test_meta_records_the_pot_and_the_events_before_the_run(self):
+        b = FakeBench()
+        b._event("pot confirmed on the track by the operator at 0.775 V (was latched); zero kept")
+        b.status["throttled"] = "0x50000"
+        s, d = self.go(b)
+        with open(os.path.join(d, "meta.json")) as f:
+            meta = json.load(f)
+        self.assertEqual(meta["pot_state"], "trusted")
+        self.assertIn("pot confirmed", meta["events_before"][-1]["text"])
+        self.assertEqual(s["throttled_before"], "0x50000")
+        self.assertTrue(all(body["duty"] == 1.0 for p, body in b.posts if p == "/move"))  # go to at the run's speed
+
+    def test_sha_prefix_either_way(self):
+        for bench, expect in (("ad04f80", "ad04f80e1c2b"), ("ad04f80e1c2b", "ad04f80")):
+            with self.subTest(bench=bench):
+                b = FakeBench(sha=bench)
+                d = os.path.join(tempfile.mkdtemp(), "run")
+                a = wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", expect, "--wipes", "1",
+                                            "--out", d])
+                s = wipe_repeat.run(a, b, d, sleep=lambda s: None, isatty=lambda: False)
+                self.assertTrue(s["complete"])
+
+    def test_a_learned_approach_lead_is_not_untrained(self):
+        b = FakeBench()
+        b.status["leads"] = {"1,surface": 0.05}
+        s, _ = self.go(b)
+        self.assertFalse(s["untrained_at_start"])
+
+    def _failed_run(self, b):
+        with self.assertRaises(SystemExit) as cm:
+            self.go(b)
+        d = self.last_out
+        for name in ("meta.json", "moves.json", "events.json", "samples.csv", "loop.json", "summary.json"):
+            self.assertTrue(os.path.exists(os.path.join(d, name)), name)
+        with open(os.path.join(d, "summary.json")) as f:
+            s = json.load(f)
+        self.assertFalse(s["complete"])
+        self.assertTrue(s["failed"])
+        self.assertIn(s["failed"], str(cm.exception.code))
+        self.assertIn(("/cmd", {"action": "stop"}), b.posts)
+        return s
+
+    def test_a_failed_run_leaves_its_record(self):
+        # QE 019 @ 536b720, stage 10 item 2: the pot latching mid-run, the link dropping, the stream dying
+        b = FakeBench()
+        post = b.post
+
+        def latch(path, body=None):
+            r = post(path, body)
+            if path == "/hb" and len(b.moves) == 500 + 1 + 7:
+                b._event("fwd stopped: wipe 4 out: pot reading unreliable (latched: the gap was within reach)")
+                b._event("moves stopped (pot not trusted); 23 not finished")
+                b.queue, b.status["move"], b.status["pot_state"] = [], None, "latched"
+            if path == "/move" and len(b.moves) > 500 + 1 + 2 and b.status["pot_state"] != "trusted":
+                return {"error": "pot reading unreliable (latched: ...)"}
+            return r
+        b.post = latch
+        s = self._failed_run(b)
+        self.assertIn("go to 0 refused", s["failed"])
+        self.assertEqual(s["strokes"], 7)  # the wipes it did are recorded
+        self.assertEqual(len(s["stops"]), 2)
+
+        b = FakeBench()
+        post2 = b.post
+
+        def drop(path, body=None):
+            if path == "/hb" and len(b.moves) == 500 + 1 + 5:
+                raise urllib.error.URLError("No route to host")
+            return post2(path, body)
+        b.post = drop
+        s = self._failed_run(b)
+        self.assertIn("URLError", s["failed"])
+
+        b = FakeBench()
+        post3 = b.post
+
+        def dead_stream(path, body=None):  # the stream stopped: the status never changes again
+            if path == "/hb" and len(b.moves) >= 500 + 1 + 3 and any(x and x.get("kind") == "wipe" for _, x in b.posts):
+                return {}
+            return post3(path, body)
+        b.post = dead_stream
+        t = [0.0]
+
+        def clock():
+            t[0] += 1.0
+            return t[0]
+        with self.assertRaises(SystemExit) as cm:
+            self.go(b, clock=clock)
+        self.assertIn("the wipes didn't finish", str(cm.exception.code))
+        with open(os.path.join(self.last_out, "summary.json")) as f:
+            self.assertEqual(json.load(f)["strokes"], 3)  # the strokes done before the stream died
+
+    def test_a_refused_return_move_fails_a_run_whose_wipes_all_finished(self):
+        b = FakeBench()
+        post = b.post
+
+        def refuse_back(path, body=None):
+            if path == "/move" and body["kind"] == "goto" and any(x and x.get("kind") == "wipe" for _, x in b.posts):
+                return {"error": "pot reading unreliable (latched: ...)"}
+            return post(path, body)
+        b.post = refuse_back
+        s = self._failed_run(b)
+        self.assertEqual(s["strokes"], s["strokes_expected"])  # every wipe done, still not complete
+        self.assertIn("go to 0 refused", s["failed"])
+
+    def test_the_record_is_written_before_the_return_move(self):
+        b = FakeBench()
+        seen = {}
+        post = b.post
+
+        def spy(path, body=None):
+            if path == "/move" and body["kind"] == "goto" and any(x and x.get("kind") == "wipe" for _, x in b.posts):
+                seen["summary"] = os.path.exists(os.path.join(self.last_out, "summary.json"))
+            return post(path, body)
+        b.post = spy
+        self.go(b)
+        self.assertTrue(seen["summary"])
+
+    def test_ctrl_c_mid_run_keeps_the_moves_and_asks_no_zero(self):
+        b = FakeBench()
+        hb, asked = [0], []
+
+        def post(path, body=None, post=b.post):
+            if path == "/hb" and any(x and x.get("kind") == "wipe" for _, x in b.posts):
+                hb[0] += 1
+                if hb[0] == 5:
+                    raise KeyboardInterrupt
+            return post(path, body)
+        b.post = post
+        d = os.path.join(tempfile.mkdtemp(), "run")
+        a = wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "ad04f80", "--out", d])
+        s = wipe_repeat.run(a, b, d, sleep=lambda s: None, isatty=lambda: True,
+                            ask=lambda prompt: asked.append(prompt) or "1")
+        self.assertTrue(s["aborted"])
+        self.assertEqual(s["strokes"], 4)
+        self.assertEqual(asked, [])
+
+    def test_ctrl_c_at_the_zero_prompt_keeps_the_summary(self):
+        def ask(prompt):
+            raise KeyboardInterrupt
+        b = FakeBench()
+        d = os.path.join(tempfile.mkdtemp(), "run")
+        a = wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "ad04f80", "--out", d])
+        s = wipe_repeat.run(a, b, d, sleep=lambda s: None, isatty=lambda: True, ask=ask)
+        self.assertIsNone(s["zero_check_deg"])
+        self.assertTrue(s["complete"])
+        with open(os.path.join(d, "summary.json")) as f:
+            self.assertTrue(json.load(f)["complete"])
+
     def test_wipes_over_the_bench_cap_are_refused(self):
         with self.assertRaises(SystemExit):
             wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "ad04f80", "--wipes", "101",
                                     "--out", "o"])
-        with self.assertRaises(SystemExit):  # a short sha would match too much
-            wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", "a", "--out", "o"])
+        for bad in ("a", "unknown", "ad04f8g"):  # a short sha would match too much; "unknown" matched a bench's
+            with self.subTest(sha=bad), self.assertRaises(SystemExit):
+                wipe_repeat.parse_args(["--host", "h", "--motor", "m", "--expect-sha", bad, "--out", "o"])
 
 
 class TestScriptBounds(unittest.TestCase):

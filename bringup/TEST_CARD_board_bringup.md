@@ -1,7 +1,7 @@
 # Test card: UrchinCam expander board bring-up + wiper power bench
 
-Pre-registered before any power-on. Status: **the card as a whole is not approved**; only stage 5 is (quoted below,
-run 11/15); stage 8 was closed on existing data and stage 10 is proposed (approval names this file `@ <sha>`;
+Pre-registered before any power-on. Status: **the card as a whole is not approved**; only stage 5's rows 5.1-5.7 are
+(quoted below, run 11/15; row 5.8 is new, PROPOSED and not approved); stage 8 was closed on existing data and stage 10 is proposed (approval names this file `@ <sha>`;
 board card `nick_wiper_bringup_ok`). Stages 2-4, 6 and 7 **ran anyway**, on Nick's go in the builder chat, not on
 an approved card (QE 019, 11/15, B2). Stage 5 (5.1-5.6) ran 11/15 3:21 PM on his stage 5 approval and his QE
 override (~3:02 PM: "I am over ridinging QE - work with me - run some test"), 4 min after QE's stage 5 spec PASS
@@ -17,7 +17,8 @@ His words, read in that chat:
 - 11/15: the jog bench comparisons in [WIPER_BENCH.md](WIPER_BENCH.md) ran outside this card; Nick later had stage 8 closed on
   their 1334 run (see stage 8).
 - 11/15, about 2:32 PM: "Yes stage 5 approved" (asked whether his "Approved" covered this card @ 89fdd53 with
-  stage 10; his answer names stage 5 only). Stage 5's text has not changed since, except its Result cells.
+  stage 10; his answer names stage 5 only). Rows 5.1-5.7 have not changed since, except their Result cells; row 5.8
+  was added after it and is not covered.
 Per QE 019 this card is the PREREG file (tier a): the bars below must stand, QE spec PASS and Nick's OK on the sha
 the board card names, before the next hardware run. Results marked "(not saved)" were read live in the session or on
 Nick's meter; no file holds them.
@@ -126,7 +127,7 @@ twisted pair, R+/R− as the other (RJ45 pins 1/2 and 3/6), to a switch with DHC
 | 5.4 | DHCP | an IPv4 address on the new interface within 30 s | PASS: an address on the LAN's /24 from DHCP (address in the log, not in this public repo) |
 | 5.5 | `ping -I <if>` the gateway, 100 pings | 0 % loss | PASS: 100 pings to the LAN gateway, 0 % loss |
 | 5.6 | Throughput, 30 s each way (`iperf3` if it's on both ends; installing it is Nick's call) | ≥ 80 Mb/s each way | PASS: Pi→Mac 90, Mac→Pi 94 Mb/s (iperf3 `-t 30`, `pi/eth_check.sh`; the Mac on Wi-Fi). iperf3 installed on cam02 by the builder on Nick's "Yes, install it" (builder chat, 11/15) |
-| 5.7 | Soak: 10 min ping while stages 6–7 run | 0 link drops (`eth_check.sh` logs carrier changes) | PASS, **run differently from the card**: 11/15 5:12-5:22 PM, 600 / 600 pings to the gateway, 0 carrier changes, 0 rx / tx errors, while the jog bench wiped (3 runs of 60 wipes, 5:14-5:20 PM, about 5.5 of the 10 min driving) instead of the stage 6-7 scripts (the motor is on the brush, not free) (`~/NereusData/UrchinCam/2026-11-15_eth/soak_motor_wiping_eth_check_011242.txt`, `2026-11-15_eth_soak_wipes_run1`, `_run3`, `_run4`). A motor-off 30 min soak (3:38 PM) also had 1798 / 1798 and 0 drops (`quiet_soak_motor_off_233807.txt`) |
+| 5.7 | Soak: 10 min ping while stages 6–7 run | 0 link drops (`eth_check.sh` logs carrier changes) | PASS, **run differently from the card**: 11/15 5:12-5:22 PM, 600 / 600 pings to the gateway, 0 carrier changes (rx / tx errors: read live, not saved), while the jog bench wiped instead of the stage 6-7 scripts (the motor is on the brush, not free): 3 runs of 60 wipes, 5:13-5:20 PM, 5.8 min of run time with the motor driving 1.9 min of it (`samples.csv` of each run). Run 2 (5:16 PM) was refused by the tool's start gate (the arm stopped at 3.92 deg, not within 3 deg of 0; only `meta.json`), so runs 3 and 4 started at 3.92 and 4.55 deg (`meta.json` `start_angle`) (`~/NereusData/UrchinCam/2026-11-15_eth/soak_motor_wiping_eth_check_011242.txt`, `2026-11-15_eth_soak_wipes_run1`, `_run2`, `_run3`, `_run4`). Whether this load stands in for stages 6-7 is PE 018's call. A motor-off 30 min soak (3:38 PM) also had 1798 / 1798 and 0 drops (`quiet_soak_motor_off_233807.txt`) |
 | 5.8 | **PROPOSED, not run** (PE 018's ruling 3; needs QE's spec verdict, then Nick's OK). Does the random MAC change at boot? Read `/sys/class/net/<if>/address` and `/sys/class/net/<if>/addr_assign_type`, reboot, read again; twice (3 readings) | a finding, not a pass bar: record only "same" or "changed" for each reboot and the `addr_assign_type` numbers, **never the address** (public repo). It feeds the fixed-address ticket (`c_urchin_eth_fixed_mac`), not PR #1 | not run |
 
 If 5.1 fails: re-check 1.4–1.5 and the crystal (Y1, 25 MHz). If 5.3 fails: swap the pairs on J2.
@@ -226,6 +227,18 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
   before run 1 (false: delete and restart again, then a new training run). It stands in for commissioning: a unit would carry
   its learned leads from then on. Runs 1-3 and the restart sets then use what the earlier runs taught. This is decided
   before the data: run 1's first stroke counts against 10.1 like any other.
+- **Pot confirm after each restart:** every restart leaves the pot latched (PE 018's ruling 2) and the bench refuses
+  every move until the operator confirms. After each restart Nick, at the bench, presses "The arm is on the track" on
+  the Jog page **without touching the arm** (it rests where the last return move or start move left it, on the
+  track). The tool refuses to start, and writes nothing, until the pot is trusted; it records the confirm in
+  `meta.json` (`pot_state`, and `events_before`: the bench's last 20 events, which hold "pot confirmed on the track
+  by the operator at ... V"). Decided before the data: if the arm has to be moved by hand after a restart (the confirm
+  is refused as outside 0.10-3.25 V, or the arm was knocked), that run or set doesn't start: Nick puts the arm back on
+  the track, the bench is restarted again, and the run or set starts from that restart; the Result names each such
+  restart. A confirm refused for a slow or moving reading is pressed again, without moving the arm.
+- **Known risk to a run:** QE 019 found idle pot reads up to 150 ms apart on 11/15. At 0 deg (0.775 V, about 76 deg
+  from the 0 V end) a gap over about 122 ms latches the pot at rest, which stops the run; under the stop rule that is a
+  failed run, recorded as such.
 - **Start move:** after each restart the tool sends the arm to **0 deg** (`go to 0` at 100 %; the bench may then
   correct up to 3 times at <= 75 %), records that move in `meta.json` (`start_move`, `start_angle`), and refuses to
   start unless the arm stopped within **3 deg** of 0. No other move is allowed between a restart and stroke 1. The
@@ -238,20 +251,23 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
   there fails 10.4.
 - **Tool:** `bringup/tools/wipe_repeat.py --host <pi>:8765 --motor "<part #>" --expect-sha <sha> --wipes <n> --out
   <dir>`; its defaults are the run conditions above. It writes meta.json, moves.json, events.json (every bench event
-  in the run), samples.csv, loop.json and summary.json. Restart `jog-bench` before each run.
+  in the run), samples.csv, loop.json and summary.json, the record first before the return move and again after it.
+  A failed run (a refused or unfinished move, the pot latching, the link or stream dropping) stops the motor, keeps
+  every file it can with the reason in `summary.json` `failed`, and exits non-zero. Restart `jog-bench` before each
+  run.
 - **n:** 3 runs x 30 wipes for 10.1, plus **10 restarts x 3 wipes** for 10.2 (stroke 1 of each scored). Ten clean
   first strokes show the miss rate is under about 26 % (95 %: 0.74^10 = 0.05); showing under 1 in 10 would take 29
   clean restarts (0.9^29 = 0.05). Ten is chosen because 4 of 5 restarts missed on 11/15: ten clean is a clear change
   from that, not proof of a low rate.
-- **Cost:** about 50 min of Nick's bench time (mount, training run, 3 runs of ~1 min, 10 restarts, 4 zero readings),
-  no purchases.
+- **Cost:** about 50 min of Nick's bench time (mount, training run, 3 runs of ~1 min, 10 restarts with a pot
+  confirm each, 14 confirms in all; a zero reading after every run, 14 asked and 4 scored), no purchases.
 - **Stop rule:** stop at the first failed run or restart set and record it; no retries to get a pass.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
 | 10.1 | 3 runs x 30 wipes (60 strokes each), each after a restart | each run: at least 58 of 60 strokes within 3 deg (`summary.json` `within_bar`); no stroke over 5 deg (`over_worst` 0) | |
 | 10.2 | 10 restarts x 3 wipes: first stroke after each restart | `first_stroke_deg` within +-3 deg in all 10 | |
-| 10.3 | Safety and conditions, every run: the training run, runs 1-3 and each of the 10 restart sets | `summary.json`: `complete` true (`strokes` = `strokes_expected`, no `fault`); `stops` empty: any entry fails the run (cut-off, no motion, heartbeat, pot, track end, cancelled move, and the I2C or PWM re-create messages the tool also counts); `cutoff_ok` true (0.5 A / 250 ms before and after); `conditions_ok` true (sweep 90, 100 %, 0.3 s, start 0); `throttled_before` and `throttled_after` 0x0. A run that ends with no `summary.json` (e.g. the tool exits when the link drops) is a failed run, not a rerun | |
+| 10.3 | Safety and conditions, every run: the training run, runs 1-3 and each of the 10 restart sets | `summary.json`: `complete` true (`strokes` = `strokes_expected`, no `fault`); `stops` empty: any entry fails the run (cut-off, no motion, heartbeat, pot, track end, cancelled move, and the I2C or PWM re-create messages the tool also counts); `cutoff_ok` true (0.5 A / 250 ms before and after); `conditions_ok` true (sweep 90, 100 %, 0.3 s, start 0); `throttled_before` and `throttled_after` 0x0; `failed` null. A run whose `summary.json` has `failed` set, or that has no `summary.json`, is a failed run, not a rerun | |
 | 10.4 | Independent zero check after runs 1-3 and the last restart set | `zero_check_deg` within +-3 deg | |
 | 10.5 | Energy per wipe | record median and min-max per run (no bar) | |
 | 10.6 | Control-loop pauses, `loop.json` per run | record (no bar) | |
