@@ -1,7 +1,7 @@
 # Test card: UrchinCam expander board bring-up + wiper power bench
 
 Pre-registered before any power-on. Status: **the card as a whole is not approved**; only stage 5's rows 5.1-5.7 are
-(quoted below, run 11/15; row 5.8 is new, PROPOSED and not approved); stage 8 was closed on existing data and stages 9 (rewritten 11/18) and 10 are proposed (approval names this file `@ <sha>`;
+(quoted below, run 11/15; row 5.8 is new, PROPOSED and not approved); stage 8 was closed on existing data and stage 9 is on hold (rewritten 11/18; QE 019 S1, gearbox limit) and stage 10 is proposed (approval names this file `@ <sha>`;
 board card `nick_wiper_bringup_ok`). Stages 2-4, 6 and 7 **ran anyway**, on Nick's go in the builder chat, not on
 an approved card (QE 019, 11/15, B2). Stage 5 (5.1-5.6) ran 11/15 3:21 PM on his stage 5 approval and his QE
 override (~3:02 PM: "I am over ridinging QE - work with me - run some test"), 4 min after QE's stage 5 spec PASS
@@ -33,7 +33,7 @@ of this card runs only once the card is approved at the sha on the board card; f
   the part number), the Zebra-Tech brush assembly with its real seal for stages 8–9. Motor supply = the board's +5V
   (there is no other motor rail on this board). Room temperature, dry.
 - **n:** stages 0–7 are pass/fail functional checks on n = 1 board (all we have; no design recommendation is made
-  from them). Stage 8: **10 wipes** per condition, reported as median and min–max (as registered; closed instead on a 30-wipe jog bench run, see stage 8). Stage 9: **9** short stalls (3 at 100 %, 2 each at 75, 50 and 25 %), rewritten 11/18.
+  from them). Stage 8: **10 wipes** per condition, reported as median and min–max (as registered; closed instead on a 30-wipe jog bench run, see stage 8). Stage 9: on hold (gearbox limit, see stage 9).
 - **Stop rules (any one, immediately, power off):** smoke, smell, a part too hot to touch; the bench supply goes into
   current limit; a rail outside its bar; the Pi reboots or browns out; motor stalls longer than the cut-off. Record
   what happened and stop the card; don't retry until the cause is understood.
@@ -181,7 +181,16 @@ this run, per QE 019's checker; not recomputed by the builder), so a shorter pea
 The final housing (machined) and glass are smoother than this surface (Nick, above), so these currents and energies
 are expected to be on the high side; not measured.
 
-## Stage 9 (PROPOSED, needs QE spec PASS, then Nick's OK): stall at the brush load, by duty
+## Stage 9 (ON HOLD: do not run): stall at the brush load, by duty
+
+**On hold 11/18 (QE 019, https://github.com/nickraymond/UrchinCam/pull/2#pullrequestreview-5960046273, S1): a stall
+into a rigid stop overloads the gearbox.** Pololu's micro metal gearmotor page
+(https://www.pololu.com/category/60/micro-metal-gearmotors, read 11/18): "The recommended upper limit for
+instantaneous torque is 2.5 kg⋅cm" for the 1000:1 gearbox, and stalls can damage the motor at once. The page's
+extrapolated stall torque for 1000:1 at 6 V is 5.5 (LP), 6.7 (MP), 11 (HPCB) and 12 kg⋅cm (HP): every version is over
+the limit at a full stall. This is the only 1000:1 motor, and stage 10 runs on it. Before this stage changes: Nick
+records the motor's part number, the card gets its limit and the expected stall torque by duty, and PE 018 rules
+whether any stall into a stop is needed, and at which duty. The plan below is kept as a record and is not approved.
 
 Rewritten 11/18. The old plan (`wipe_logger.py`, 0.25 A / 150 ms cut-off) was under the brush's running current and
 would have stopped every stroke (QE 019). PE 018's ruling 4 b (`~/NereusData/ops/pe_specs/RULINGS_urchincam_pr1_2026-11-17.md`
