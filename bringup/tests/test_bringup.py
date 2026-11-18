@@ -836,6 +836,43 @@ class TestJog(unittest.TestCase):
         self.assertTrue(any("stall cut-off" in e["text"] for e in ctrl.events))
 
     # --- QE 019 B3: no-motion and track-end stops outside moves ---
+    def test_cycles_and_runs_drive_every_stroke_at_full_duty(self):
+        # PE 018's ruling 7: the builder's 11/17 desk test. A 50 % hold that ended on its own (max run time, no Stop)
+        # left 0.5 behind, and a 3-cycle run then drove fwd 0.5, rev 0.5, fwd 1.0, rev 0.5, fwd 1.0, rev 0.5.
+        for kind in ("cycle", "run"):
+            with self.subTest(kind):
+                ctrl = self._ctrl(pot_every=4)
+                ctrl.set_settings({"max_on_s": 1})
+                ctrl.request("fwd", duty=0.5)
+                self._run_for(ctrl, 2.0)
+                self.assertEqual(ctrl.state, "asleep")
+                self.assertIn("max run time", ctrl.events[-1]["text"])
+                self.assertEqual(ctrl.want_duty, 0.5)  # what the hold left behind
+                if kind == "cycle":
+                    ctrl.request("cycle", 0.5, 3, 0.3)
+                else:
+                    root = tempfile.mkdtemp()
+                    self.addCleanup(lambda r=root: __import__("shutil").rmtree(r))
+                    opts = os.path.join(root, "opts.json")
+                    with open(opts, "w") as f:
+                        json.dump({"motors": ["m"], "conditions": ["c"]}, f)
+                    jog_server.start_run(ctrl, {"motor": "m", "condition": "c", "stroke_s": 0.5, "cycles": 3,
+                                                "pause_s": 0.3}, {"fsr": 1.024, "sha": "x"},
+                                         os.path.join(root, "runs"), opts)
+                    run = ctrl.run
+                    self.addCleanup(lambda r=run: r.wait(5))
+                starts, last = [], ctrl.state
+                end = self.clock.t + 6
+                while self.clock.t < end and (ctrl.cycle or ctrl.state != "asleep"):
+                    ctrl.tick()
+                    ctrl.heartbeat()
+                    self.clock.sleep(1 / 860)
+                    if ctrl.state in ("fwd", "rev") and ctrl.state != last:
+                        starts.append((ctrl.state, ctrl.duty, self._bridge()))
+                    last = ctrl.state
+                self.assertTrue(ctrl.cycle_result["complete"], ctrl.cycle_result)
+                self.assertEqual(starts, [("fwd", 1.0, (1, 1, 0)), ("rev", 1.0, (1, 0, 1))] * 3)  # the pins too
+
     def test_cycle_stall_under_the_cut_off_stops(self):
         ctrl = self._mover(vps=0.0)  # shaft held: the pot never moves
         self.adc.run_a = 0.30  # under the 0.5 A cut-off (QE's case)
