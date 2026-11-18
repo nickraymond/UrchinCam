@@ -1,0 +1,23 @@
+# Jog bench (wiper motor drive + live current + bench runs) as a service on the Pi.
+# Install (from ~/bringup/pi):
+#   sudo cp jog-bench.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now jog-bench
+# Pages: http://<tailscale ip>:8765/ (Drive) and /runs (Bench runs); or through the SSH tunnel on localhost.
+# Logs: journalctl -u jog-bench -f      Stop: sudo systemctl stop jog-bench (puts the motor driver to sleep)
+[Unit]
+Description=UrchinCam jog bench (wiper motor, current, bench runs)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/bringup/pi
+ExecStart=/usr/bin/python3 /home/pi/bringup/pi/jog_server.py --bind 127.0.0.1,tailscale
+# 'tailscale' fails until tailscaled has an address; try again
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

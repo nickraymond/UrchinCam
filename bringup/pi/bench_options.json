@@ -1,0 +1,11 @@
+{
+  "motors": [
+    "260:1 micro metal gearmotor (6 V assumed, part # TBD)",
+    "1000:1 micro metal gearmotor (6 V assumed, part # TBD)"
+  ],
+  "conditions": [
+    "Free spinning",
+    "On shaft",
+    "On shaft + arm sliding over viewport"
+  ]
+}
