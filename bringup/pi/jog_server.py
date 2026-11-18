@@ -373,8 +373,8 @@ class JogController:
                     self.want = "stop"
                     if self.cycle:
                         self._end_cycle(now, why, False)
-                else:
-                    self._drive(now, self.want, self.want_duty)
+                else:  # a timed cycle or Run drives every stroke at 100 % (PE 018's ruling 7): the duty a hold left
+                    self._drive(now, self.want, 1.0 if self.cycle else self.want_duty)  # behind would start some at less
 
             if self.state in ("fwd", "rev"):
                 self.sampler.zero_key = self.state
