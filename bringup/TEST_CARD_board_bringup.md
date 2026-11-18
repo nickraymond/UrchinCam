@@ -33,7 +33,7 @@ of this card runs only once the card is approved at the sha on the board card; f
   the part number), the Zebra-Tech brush assembly with its real seal for stages 8–9. Motor supply = the board's +5V
   (there is no other motor rail on this board). Room temperature, dry.
 - **n:** stages 0–7 are pass/fail functional checks on n = 1 board (all we have; no design recommendation is made
-  from them). Stage 8: **10 wipes** per condition, reported as median and min–max (as registered; closed instead on a 30-wipe jog bench run, see stage 8). Stage 9: **3** holds at 100 % (plus 3 for a finding), no stall.
+  from them). Stage 8: **10 wipes** per condition, reported as median and min–max (as registered; closed instead on a 30-wipe jog bench run, see stage 8). Stage 9: **6** holds at 100 % (plus 3 for a finding), no stall.
 - **Stop rules (any one, immediately, power off):** smoke, smell, a part too hot to touch; the bench supply goes into
   current limit; a rail outside its bar; the Pi reboots or browns out; motor stalls longer than the cut-off. Record
   what happened and stop the card; don't retry until the cause is understood.
@@ -197,22 +197,30 @@ meant to run at 100 %, and the inherited duty (`c_urchin_pr1_nits`) is fixed in 
 - **Motor:** the one called 1000:1 (Nick, 11/13), part number not recorded (board card `nick_urchin_motor_part`).
   PE 018 (ruling file above, his arithmetic): its speed on the brush (351-374 deg/s at 5 V, `WIPER_BENCH.md`) is
   about twice any Pololu 1000:1 and fits a 380:1 HP; which it is is not known. Stage 9 does not wait on it.
-- **Code:** none new. The bench must report main `431ab84` or a commit whose `bringup/pi` tree equals `2468ec9`'s
-  (QE code PASS; `git diff --quiet 2468ec9 <sha> -- bringup/pi`); the builder checks it and writes it in 9.1's Result.
+- **Code:** none new. The stage runs on the code sha with QE **code** PASS, written on board card
+  `nick_wiper_bringup_ok` when the stage is approved (as stage 10's "One sha"); the builder checks the bench reports
+  it and writes it in 9.1's Result.
 - **Setup:** the motor on J3 with the Zebra-Tech brush and seal stack on the hand-held rig, as on 11/15; nothing in
   the arm's way. Drive page settings for this stage: **cut-off 0.20 A for 250 ms** (below the brush's running
   current, so a normal stroke trips it), **max run time 0.5 s**; back to 0.5 A / 250 ms / 10 s after, all recorded.
-  Why 0.20 A (builder, from the saved strokes): in 426 strokes on the brush at 100 % (`2026-11-15_1334_compare`
-  `samples_simple.csv`, `2026-11-15_eth_soak_wipes_run1`, `_run3`, `_run4` `samples.csv`) no sample 80 ms or more
-  after a stroke's start was under 0.255 A, and the median of the strokes' running currents was 0.393-0.405 A.
-- **Each hold (9.1):** pot trusted (after any restart Nick confirms, looking at the arm first); the arm at the zero
-  (Jog page `go to 0` between holds); Jog page speed 100 %; Nick presses and holds the button that drives forward
-  (raises the angle: about 243 deg of track ahead of the zero, `WIPER_BENCH.md`), and releases it once the bench has stopped. At about
-  350 deg/s the trip at about 0.25 s is about 90 deg of travel, and the 0.5 s max run time is about 175 deg, both
-  short of the track end. He presses Stop only if a stop rule fires.
-- **Finding, no bar (9.1b, QE 019's variant):** the same 3 holds with the cut-off at 0.5 A for 20 ms (the minimum),
-  recording whether a start peak trips it. A start peak may be shorter than 20 ms (the saved strokes held 0.5 A for
-  at most 39-60 ms, read only every 8th sample during moves); a hold that doesn't trip ends on the 0.5 s max run time.
+  Why 0.20 A (builder, from the saved strokes): in 430 drive segments on the brush at 100 % (each unbroken run of
+  forward or reverse samples; 422 are full strokes, QE 019's count) in `2026-11-15_1334_compare` `samples_simple.csv`
+  and `2026-11-15_eth_soak_wipes_run1`, `_run3`, `_run4` `samples.csv`, no sample 80 ms or more after a segment's
+  start was under 0.255 A, and the per-run median of the segments' running currents was 0.393-0.405 A.
+- **Getting there:** at the normal settings (0.5 A / 250 ms), Jog page `go to 0`. Then the stage's settings.
+- **Each hold (9.1):** pot trusted (after any restart Nick confirms, looking at the arm first); Jog page speed 100 %;
+  Nick presses and holds a direction button, and releases it once the bench has stopped. The holds alternate,
+  forward from the zero then reverse back toward it, 3 of each (6 holds), so no move runs under the stage's cut-off
+  (QE 019 R1: a `go to 0` would trip it) and both directions are covered. At about 350 deg/s a trip at about 0.25 s
+  is about 90 deg of travel; there are about 243 deg of track ahead of the zero and 66 deg behind it
+  (`WIPER_BENCH.md`), so a reverse hold that does not trip ends on the track-end stop, not past it. If the arm ends
+  a reverse hold more than 20 deg from the zero, back to the normal settings, `go to 0`, then the stage's settings
+  (each change recorded). He presses Stop only if a stop rule fires.
+- **Finding, no bar (9.1b, QE 019's variant):** 3 forward holds from the zero with the cut-off at 0.5 A for 20 ms
+  (the minimum), recording whether a start peak trips it. A start peak may be shorter than 20 ms (the saved strokes
+  held 0.5 A for at most 39-60 ms, read only every 8th sample during moves); a hold that does not trip ends on the
+  0.5 s max run time, about 175 deg. Between these holds: the normal settings, `go to 0`, then 0.5 A / 20 ms again,
+  each change recorded.
 - **Record:** the builder saves the bench's `/stream` from before each hold until the bridge is asleep again
   (samples, events, settings, sha) to `~/NereusData/UrchinCam/<date>_stage9/hold_<n>.stream`, and copies the
   server's session `samples.csv` afterward. During holds the current is read every sample.
@@ -224,13 +232,13 @@ meant to run at 100 %, and the inherited duty (`c_urchin_pr1_nits`) is fixed in 
   PE 018's reasoning (the winding doesn't heat much in 250 ms), not a measurement. A jam at a duty under 100 % is not
   covered; ruling 7's duty fix leaves 100 % as the only duty of a timed cycle or Run.
 - **n:** one motor, one board (rule 10): a finding for this motor only.
-- **Cost:** about 10 min of Nick's bench time, 6 holds of under 0.5 s on a free path, no purchases. **Worth it:**
+- **Cost:** about 15 min of Nick's bench time, 9 holds of under 0.5 s on a free path, no purchases. **Worth it:**
   stage 10 needs the cut-off shown to trip on this motor, and 8.3 and ruling 4 (via ruling 7) use 9.2.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 9.1 | Cut-off at 0.20 A / 250 ms: 3 forward holds at 100 % from the zero | in all 3: the stop event is the stall cut-off, and the drive state ends within 300 ms of the start of the last unbroken stretch of samples at or over 0.20 A | not run |
-| 9.1b | Finding: cut-off at 0.5 A / 20 ms, 3 more holds | record, no bar: how many of the 3 trip, and the longest unbroken stretch at or over 0.5 A in each | not run |
+| 9.1 | Cut-off at 0.20 A / 250 ms: 6 holds at 100 %, forward and reverse in turn | in all 6: the stop event is the stall cut-off, and the drive state ends within 300 ms of the start of the last unbroken stretch of samples at or over 0.20 A | not run |
+| 9.1b | Finding: cut-off at 0.5 A / 20 ms, 3 forward holds from the zero | record, no bar: how many of the 3 trip, and the longest unbroken stretch at or over 0.5 A in each | not run |
 | 9.2 | Stall current at 100 %, at least: the largest start peak (first 150 ms of a stroke) in the four saved runs above and in 9.1's holds | record, no bar, as "at least" (a stopped rotor draws its stall current, and every stroke starts from rest); feeds 8.3 and ruling 7 (against the 0.5 A cut-off) | not run (saved runs alone, builder's count 11/18: 1.31 A max, 0.84-0.87 A median per run) |
 
 ## Stage 10 (PROPOSED, needs QE spec PASS, then Nick's OK): repeat for the candidate method
@@ -253,7 +261,7 @@ the 11/15 restarted simple runs would pass 10.1 and 10.2 together in 1 of 5.
   `nick_wiper_bringup_ok` when the stage is approved. Commits that change only this card (a Result cell, the stage 9
   rewrite) don't change it. `wipe_repeat.py --expect-sha` (7+ characters) refuses any other; a run whose `meta.json`
   sha is another, shorter than 7 characters or "unknown" doesn't count.
-- **Before stage 10:** a rewritten stage 9 (stall at the brush load) has run and its cut-off tripped, so the cut-off
+- **Before stage 10:** the rewritten stage 9 has passed 9.1 (the cut-off tripped in normal strokes), so the cut-off
   is known to work on this motor.
 - **Order at the start:** (1) delete `~/NereusData/UrchinCam/motion_cal.json` on the Pi, (2) `sudo systemctl restart
   jog-bench`, (3) one **training run of 5 wipes** with the tool (`--out .._stage10_train`): recorded, not scored,
