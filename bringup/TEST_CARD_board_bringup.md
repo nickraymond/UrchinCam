@@ -1,7 +1,7 @@
 # Test card: UrchinCam expander board bring-up + wiper power bench
 
 Pre-registered before any power-on. Status: **the card as a whole is not approved**; only stage 5's rows 5.1-5.7 are
-(quoted below, run 11/15; row 5.8 is new, PROPOSED and not approved); stage 8 was closed on existing data and stage 10 is proposed (approval names this file `@ <sha>`;
+(quoted below, run 11/15; row 5.8 is new, PROPOSED and not approved); stage 8 was closed on existing data and stages 9 (rewritten 11/18) and 10 are proposed (approval names this file `@ <sha>`;
 board card `nick_wiper_bringup_ok`). Stages 2-4, 6 and 7 **ran anyway**, on Nick's go in the builder chat, not on
 an approved card (QE 019, 11/15, B2). Stage 5 (5.1-5.6) ran 11/15 3:21 PM on his stage 5 approval and his QE
 override (~3:02 PM: "I am over ridinging QE - work with me - run some test"), 4 min after QE's stage 5 spec PASS
@@ -33,7 +33,7 @@ of this card runs only once the card is approved at the sha on the board card; f
   the part number), the Zebra-Tech brush assembly with its real seal for stages 8–9. Motor supply = the board's +5V
   (there is no other motor rail on this board). Room temperature, dry.
 - **n:** stages 0–7 are pass/fail functional checks on n = 1 board (all we have; no design recommendation is made
-  from them). Stage 8: **10 wipes** per condition, reported as median and min–max (as registered; closed instead on a 30-wipe jog bench run, see stage 8). Stage 9: **3** short stalls.
+  from them). Stage 8: **10 wipes** per condition, reported as median and min–max (as registered; closed instead on a 30-wipe jog bench run, see stage 8). Stage 9: **9** short stalls (3 at 100 %, 2 each at 75, 50 and 25 %), rewritten 11/18.
 - **Stop rules (any one, immediately, power off):** smoke, smell, a part too hot to touch; the bench supply goes into
   current limit; a rail outside its bar; the Pi reboots or browns out; motor stalls longer than the cut-off. Record
   what happened and stop the card; don't retry until the cause is understood.
@@ -181,23 +181,56 @@ this run, per QE 019's checker; not recomputed by the builder), so a shorter pea
 The final housing (machined) and glass are smoother than this surface (Nick, above), so these currents and energies
 are expected to be on the high side; not measured.
 
-## Stage 9: stall (short)
+## Stage 9 (PROPOSED, needs QE spec PASS, then Nick's OK): stall at the brush load, by duty
 
-**To be rewritten before it runs** (QE 019): as written it uses `wipe_logger.py` with the 0.25 A / 150 ms cut-off,
-below the brush's ~390 mA running current on cam02 (11/15), so it would stop every stroke. The rewrite sets the
-cut-off from measured current and runs on the jog bench.
+Rewritten 11/18. The old plan (`wipe_logger.py`, 0.25 A / 150 ms cut-off) was under the brush's running current and
+would have stopped every stroke (QE 019). PE 018's ruling 4 b (`~/NereusData/ops/pe_specs/RULINGS_urchincam_pr1_2026-11-17.md`
+@ c9e4d3b4a9a5) asks for the stall current at 100 % and at the lowest duty timed cycles run at; after this stage
+the PE rules the cut-off against duty.
 
-Nick holds the brush still by hand (or a fixed stop) and runs one stroke.
-`python3 pi/wipe_logger.py --run stall --fwd-s 2 --rev-s 0 --wipes 3 --max-stalls 3 --motor <part#>`
+- **Questions:** (1) does the jog bench's cut-off (0.5 A for 250 ms) stop a stall at 100 %? (2) what does the bench
+  read at stall at 100, 75, 50 and 25 % duty, against that cut-off? (3) does the motor still wipe as before after?
+- **Why these duties:** a timed cycle has no duty input and is meant to run at 100 %, but its first stroke and every
+  reverse stroke start at the duty a Jog page hold left behind when that hold ended on its own (desk test 11/17,
+  board card `c_urchin_pr1_nits`), so at any Jog page speed, 5-100 %. The seal needs 75-100 % to turn (Nick, 11/15:
+  30 % and 50 % stalled; `jog_server.py`, `CORR_DUTY`), so a cycle at 50 % or less may stall on the seal alone.
+  25 % is the lowest measured here; 5-20 % are not.
+- **Code:** none new. The bench must report main `431ab84` (merge of PR #1) or a commit whose `bringup/pi` tree
+  equals `2468ec9`'s (QE code PASS; `git diff --quiet 2468ec9 <sha> -- bringup/pi`); the builder checks it and writes
+  it in 9.1's Result.
+- **Setup:** the 1000:1 motor on J3 with the Zebra-Tech brush and seal stack on the hand-held rig, as on 11/15.
+  Drive page: cut-off 0.5 A / 250 ms (the defaults), **max run time 1.0 s** (set for this stage, back to 10 s after;
+  both recorded). A **rigid stop** that the brush arm rests against, on the pot's trusted track at least 30 deg from
+  either end of its safe track (holds stop 3 deg from an end, and an arm within about 14-21 deg of an end can latch:
+  `WIPER_BENCH.md`). Not a hand: the gearbox's stall torque is not known (motor part number not recorded). Nick fits
+  the stop and says what he used; it is recorded.
+- **Each stall:** pot trusted (after any restart Nick confirms, looking at the arm first); arm resting against the
+  stop; Jog page speed set; Nick presses and holds the button that drives into the stop; the bench ends the drive on
+  its own (cut-off, no-motion stop, or the 1.0 s max run time), then he releases it. He presses Stop only if a stop
+  rule fires. At least 30 s between stalls (a margin for heat; my choice, not measured). Order: 100 % x 3, then
+  75 %, 50 % and 25 % x 2 each, all in the same direction (recorded; the other direction is not tested). Desk check
+  in the simulator at `431ab84`: a held button with the shaft held ends at 0.25 s (cut-off), 0.84 s (no motion) or
+  1.00 s (max run time) and does not restart (the sim's reading is its current times the duty, an assumption).
+- **Record:** the builder saves the bench's `/stream` from before each stall until the bridge is asleep again
+  (samples, events, settings, sha) to `~/NereusData/UrchinCam/<date>_stage9/stall_<n>_<duty>.stream`, and copies the
+  server's session `samples.csv` afterward. Per stall: duty, direction, drive time, the stop event, peak, and the
+  **stall reading** = the median (and p10-p90) of the samples in the drive state. That is the bench's own VISEN
+  reading, the cut-off's input, not a meter (7.2 skipped: VISEN not checked against a DMM); at reduced duty it is
+  whatever the ADC samples of a PWM current.
+- **Stop rules (besides the card's):** a stall the bench does not end within 1.2 s (Nick presses Stop, then pulls
+  power if it keeps driving); the stop or the arm moves; grinding or any new noise; the pot goes suspect or latched
+  during a stall. Record it and stop the stage.
+- **n:** one motor and one board (rule 10): the readings hold for this motor only, 2-3 per duty; a finding, not a
+  design margin.
+- **Cost:** about 30 min of Nick's bench time, 9 stalls of at most 1 s, no purchases. **Worth it:** 8.3 (torque
+  margin) and ruling 4 b wait on it, and stage 10 needs the cut-off shown to trip on this motor.
 
 | # | Step | Pass | Result |
 |---|---|---|---|
-| 9.1 | Software cut-off fires | motor off within `--stall-ms` + 50 ms of the current crossing `--stall-amps` | not run |
-| 9.2 | Stall current (median of 3) | record; feeds 8.3 | not run |
-| 9.3 | Motor and gearbox after 3 stalls | still run freely (repeat 7.1) | not run |
-
-Defaults: `--stall-amps 0.25`, `--stall-ms 150`. They fit a Pololu #4791 at 5 V (stall ≈ 0.30 A if stall current
-scales with voltage from Pololu's 0.36 A at 6 V; an estimate). Nick changes them for another motor.
+| 9.0 | Before, stop removed: `wipe_repeat.py --wipes 5 --out ~/NereusData/UrchinCam/<date>_stage9_before` (its registered conditions: 0 -> 90 -> 0 deg, 100 %, 0.3 s rest) | all 5 wipes complete; record energy per wipe (median, min-max) | not run |
+| 9.1 | Cut-off at 100 %, 3 stalls | in all 3: the stop event is the stall cut-off, and the drive state ends within 300 ms (250 + 50) of the first sample at or over 0.5 A | not run |
+| 9.2 | Stall reading by duty: 100 % (9.1's three), 75, 50, 25 % (two each) | record, no bar: per duty the stall readings, their median, and which stop ended each stall. Feeds 8.3 (the 100 % median) and PE 018's ruling on the cut-off against duty | not run |
+| 9.3 | After, stop removed: the same 5 wipes as 9.0 (`_stage9_after`) | all 5 complete, and the median energy per wipe within +-20 % of 9.0's (set before the data; 8.1's 30 wipes on 11/15 spread 1.358-1.532 J, about +-6 %) | not run |
 
 ## Stage 10 (PROPOSED, needs QE spec PASS, then Nick's OK): repeat for the candidate method
 
